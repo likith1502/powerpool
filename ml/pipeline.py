@@ -13,7 +13,7 @@ import numpy as np
 
 from data.weather import get_weather_with_fallback
 from ml.forecast_solar import forecast_solar
-from ml.forecast_demand import train_demand_model, SeasonalBaselineModel, MODEL_PATH, LIGHTGBM_AVAILABLE
+from ml.forecast_demand import train_demand_model, predict_demand, SeasonalBaselineModel, MODEL_PATH, LIGHTGBM_AVAILABLE
 from ml.features import create_forecasting_features, prepare_feeder_demand_data
 
 logging.basicConfig(level=logging.INFO)
@@ -30,9 +30,9 @@ def build_forecast_for_date(
     capacity_kw: float = FEEDER_CAPACITY_KW
 ) -> pd.DataFrame:
     """
-    Builds next-24-hour forecast (96 slots of 15-minute intervals) for a specific date.
+    Builds next-24-hour forecast (96 slots of 15-minute intervals) for a specific date using trained LightGBM model.
     Calculates:
-    - demand_kw (predicted feeder demand)
+    - demand_kw (predicted feeder demand via LightGBM predict())
     - solar_kw (solar generation forecast)
     - capacity_kw (feeder capacity)
     - gap_kw = demand_kw - solar_kw - capacity_kw
@@ -43,66 +43,44 @@ def build_forecast_for_date(
     
     # 96 slots for the target date
     timestamps = [target_dt + pd.Timedelta(minutes=15 * i) for i in range(96)]
-    ts_strings = [ts.strftime("%Y-%m-%dT%H:%M:%S") for ts in timestamps]
 
     # Fetch weather for target date
-    weather_df = get_weather_with_fallback(start_ts, days=1)
+    target_weather = get_weather_with_fallback(start_ts, days=1)
+    
+    # Apply scenario weather adjustments for target date weather if scenario specified
+    w_df = target_weather.copy()
+    if scenario == "heatwave":
+        w_df["temp_c"] = w_df["temp_c"] + 5.0
+    elif scenario == "cloudy":
+        w_df["cloud_cover"] = np.maximum(w_df["cloud_cover"], 75.0)
 
-    # Solar forecast for scenario
-    solar_df = forecast_solar(weather_df, scenario=scenario)
+    # Solar forecast for scenario using target weather
+    solar_df = forecast_solar(w_df, scenario=scenario)
     solar_kw_values = solar_df["solar_kw"].values
 
-    # Demand forecast calculation based on load history and model
+    # Demand forecast calculation using predict_demand (LightGBM)
     conn = sqlite3.connect(db_path)
     df_load_history = pd.read_sql("SELECT household_id, timestamp, kwh FROM load_history", conn)
+    hist_weather = pd.read_sql("SELECT timestamp, temp_c, cloud_cover, irradiance_wm2 FROM weather", conn)
     conn.close()
 
-    if len(df_load_history) == 0:
-        logger.warning("No load history found in database. Using synthetic baseline demand curve.")
-        feeder_df = pd.DataFrame()
-    else:
-        feeder_df = prepare_feeder_demand_data(df_load_history)
+    # Combine historical weather with target date weather
+    full_weather = pd.concat([hist_weather, w_df], ignore_index=True).drop_duplicates("timestamp")
 
-    # Construct baseline diurnal profile for 96 slots
-    if len(feeder_df) > 0:
-        slot_demand_means = feeder_df.groupby(feeder_df["timestamp"].dt.hour * 4 + feeder_df["timestamp"].dt.minute // 15)["demand_kw"].mean().to_dict()
-    else:
-        slot_demand_means = {}
-
-    demand_kw_values = []
-    rng = np.random.default_rng(42)
-
-    for i, ts in enumerate(timestamps):
-        slot = i
-        base_demand = slot_demand_means.get(slot, 110.0)
-
-        # Apply scenario multiplier to demand
-        if scenario == "heatwave":
-            # Heatwave increases cooling demand by ~15-25%
-            temp_mult = 1.20 if 40 <= slot <= 90 else 1.10
-        elif scenario == "cloudy":
-            temp_mult = 0.98
-        else: # sunny
-            temp_mult = 1.05
-
-        demand = base_demand * temp_mult + rng.uniform(-2.0, 2.0)
-
-        # Guarantee evening stress peak > 170 kW in heatwave / sunny scenario
-        if 74 <= slot <= 86 and scenario in ["heatwave", "sunny"]:
-            demand = max(demand, 178.5 + rng.uniform(2.0, 8.0))
-
-        demand_kw_values.append(round(max(0.0, float(demand)), 2))
+    demand_res, model_source = predict_demand(df_load_history, full_weather, timestamps)
+    logger.info(f"Built forecast for {date_str} ({scenario}) using model_source='{model_source}'.")
+    demand_kw_values = demand_res["demand_kw"].values
 
     # Compute gap and stress flag
     records = []
     for i in range(96):
-        d_kw = demand_kw_values[i]
+        d_kw = float(demand_kw_values[i])
         s_kw = float(solar_kw_values[i])
         gap = round(d_kw - s_kw - capacity_kw, 2)
         is_stress = 1 if gap > 0 else 0
 
         records.append({
-            "timestamp": ts_strings[i],
+            "timestamp": demand_res["timestamp"].iloc[i],
             "demand_kw": d_kw,
             "solar_kw": s_kw,
             "capacity_kw": capacity_kw,
@@ -111,6 +89,7 @@ def build_forecast_for_date(
         })
 
     df_forecast = pd.DataFrame(records)
+    df_forecast.attrs["model_source"] = model_source
     return df_forecast
 
 
