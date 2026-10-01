@@ -4,7 +4,7 @@ Tested revision: `backend` @ 691f41a plus the fixes in this patch · Date: 2026-
 
 ## Acceptance status: PASS WITH LIMITATIONS
 
-The demo scope works end to end. Docker and the hosted Render deployment were configuration-checked but not run, because no Docker engine or Render account was available in the test environment.
+The demo scope works end to end. Docker was built and run on the developer's Windows machine. The hosted Render deployment was configuration-checked and simulated, but not deployed.
 
 ## Results
 
@@ -17,7 +17,7 @@ The demo scope works end to end. Docker and the hosted Render deployment were co
 | Optimizer (fresh DB, 80 households, 65% compliance) | PASS | Sunny 196.0 → 169.7 kW; Heatwave 186.3 → 169.7 kW; Cloudy 109.7 kW, no stress, 0 nudges; 0 kW remaining overload |
 | KPIs | PASS | 78.98 kWh realized, ₹236.93/day, 56.07 kg CO₂/day, solar self-use 94.5% → 100% |
 | Streamlit UI — browser (Chromium, headless) | PASS | Home, Resident and DISCOM pages at 1366×768 and 420×860: 0 Streamlit exceptions. Optimizer button shows "169.7 kW / 170 kW" and GRID FEASIBLE; Live ML toggle, DR event button and nudge Accept all work; Telugu nudges render |
-| Docker Compose | CONFIG ONLY | Volume no longer shadows source; DB excluded from image; model and cached weather included; health check uses installed `curl`. Not built or run. |
+| Docker Compose | PASS | Docker Desktop on Windows (Docker 29.7.2, Compose v5.4.0): images built; backend healthy; frontend up; full browser walkthrough inside Docker; accepted nudges survived `restart` and `down`/`up`; backend stop/start recovered; production DB hash unchanged |
 | Render deployment | CONFIG FIXED, NOT DEPLOYED | Simulated Render build in a clean virtualenv: before fix, live forecast returned 503; after fix, 200 |
 
 ## Defects found and fixed
@@ -31,6 +31,10 @@ The demo scope works end to end. Docker and the hosted Render deployment were co
 | D5 | High | Render | `render.yaml` installed `backend/requirements.txt`, which lacks pandas/numpy/LightGBM, so live ML returned 503 | Installs root `requirements.txt` | Pass (simulated) |
 | D6 | Medium | Backend | `GET /forecast/live` silently returned the precomputed forecast | Route detected from the request path | Pass |
 | D7 | Medium | Frontend | DISCOM header said "100 Residential Households"; picker allowed 1–100 though only HH001–HH080 exist | Shows 80; picker capped at 80 | Pass (browser) |
+| D8 | High | Backend | Re-running the optimizer re-created accepted nudges as pending, so the same shift could be paid twice (45 → 90 pts) | Residents' answers are kept across re-runs | Pass |
+| D9 | Low | Frontend | Nudge text said Rs 14 while the card said ₹13 for a ₹13.5 saving | One rounding rule everywhere (₹13.5) | Pass |
+| D10 | Medium | Frontend | Choosing English showed Telugu for households whose preferred language is Telugu | Backend sends an explicit English message | Pass |
+| D11 | Low | Tests | Offline-fallback test failed whenever anything ran on port 8000 | Test uses an unused port | Pass |
 
 ## Known limitations
 
