@@ -8,7 +8,9 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DB_PATH=/app/data/powerpool.db
+      - DB_PATH=/app/db/powerpool.db
+      - SEED_HOUSEHOLDS=80
+      - ENABLE_DEMO_ENDPOINTS=false
       - MOCK_DATA=false
       - FEEDER_CAPACITY_KW=170.0
       - COMPLIANCE=0.65
@@ -20,7 +22,7 @@ services:
       - TELEGRAM_TOKEN=${TELEGRAM_TOKEN:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
     volumes:
-      - powerpool-data:/app/data
+      - powerpool-data:/app/db   # DB only; never shadow source in /app/data
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
       interval: 10s

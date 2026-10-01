@@ -26,7 +26,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Ensure data directory exists for database mounting
-RUN mkdir -p /app/data
+RUN mkdir -p /app/db
 
 # Expose backend (8000) and frontend (8501) ports
 EXPOSE 8000 8501

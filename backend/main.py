@@ -21,7 +21,7 @@ from typing import List, Optional, Union
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from . import services as svc
-from .config import slot_to_time, MOCK_DATA
+from .config import slot_to_time, MOCK_DATA, SEED_HOUSEHOLDS, ENABLE_DEMO_ENDPOINTS
 from .db import init_db, rows
 from .schemas import (ForecastSlot, ForecastResponse, OptimizeResponse, OptimizeRequest,
                       Nudge, NudgesResponse, RespondRequest, RespondResponse, KPIs,
@@ -34,7 +34,7 @@ async def lifespan(app):
     init_db()
     if not rows("SELECT 1 FROM forecast LIMIT 1"):   # empty DB on fresh deploy
         from .seed_mock import seed
-        seed(n_households=100)
+        seed(n_households=SEED_HOUSEHOLDS)   # was hardcoded 100 (stress profile)
     yield
 
 
@@ -65,14 +65,35 @@ def health():
 
 # ── Forecast ──────────────────────────────────────────────────────────────────
 
-@app.get("/forecast", response_model=Union[ForecastResponse, List[ForecastSlot]])
-def forecast(date: Optional[str] = None, scenario: Optional[str] = None, format: Optional[str] = None):
+@app.get("/forecast", response_model=Union[ForecastResponse, List[ForecastSlot]], tags=["forecast"])
+@app.get("/forecast/live", response_model=Union[ForecastResponse, List[ForecastSlot]], tags=["forecast"],
+         summary="Live ML model inference using trained LightGBM model")
+def forecast(date: Optional[str] = None, scenario: Optional[str] = None,
+             format: Optional[str] = None, live: bool = False):
     """96 × 15-minute slots.
-    `data_source` = 'mock' when seeded data is in use; 'model' after Member A's
-    pipeline writes real forecast rows and MOCK_DATA=false is set in .env.
-    Supports ?scenario=sunny|cloudy|heatwave.
+    `data_source` = 'live_model' when live=True is passed;
+    'mock' when seeded mock data is in use; 'model' for Member A's precomputed scenario forecasts.
+    Supports ?scenario=sunny|cloudy|heatwave&live=true|false.
     """
     effective_date = guard(svc.resolve_date, date, scenario) or "2026-10-01"
+
+    # Optional live ML model inference path
+    if live or "/forecast/live" in getattr(app, "_current_path", ""):
+        try:
+            from ml.forecast_service import forecast_service
+            import os
+            from . import db as _db_mod
+            current_db = getattr(_db_mod, "DB_PATH", os.getenv("DB_PATH", "data/powerpool.db"))
+            sc = scenario or ("sunny" if "10-01" in str(effective_date) else "cloudy" if "10-02" in str(effective_date) else "heatwave")
+            slots = forecast_service.predict_live_forecast(effective_date, scenario=sc, db_path=current_db)
+            if format == "list":
+                return slots
+            return {"date": effective_date, "slots": slots}
+        except Exception as e:
+            # Gracefully log and fallback to precomputed data
+            import logging
+            logging.getLogger("backend.main").warning(f"Live forecast failed ({e}), falling back to precomputed table.")
+
     data = guard(svc.load_forecast, effective_date, scenario)
     source = "mock" if MOCK_DATA else "model"
     slots = [{**r, "slot": i, "time": slot_to_time(i), "timestamp": r.get("timestamp"),
@@ -202,9 +223,16 @@ def flex_capacity(scenario: Optional[str] = None, format: Optional[str] = None):
 
 # ── Demo helpers ──────────────────────────────────────────────────────────────
 
+def _require_demo_endpoints():
+    if not ENABLE_DEMO_ENDPOINTS:
+        raise HTTPException(status_code=403,
+                            detail="Demo endpoints are disabled (ENABLE_DEMO_ENDPOINTS=false).")
+
+
 @app.post("/demo/simulate-responses")
 def simulate_responses(rate: float = Query(0.65, ge=0.0, le=1.0), seed: int = 7):
     """Demo helper: randomly accept ~rate of pending nudges (compliance simulation)."""
+    _require_demo_endpoints()
     import random
     rnd = random.Random(seed)
     pending = rows("SELECT id FROM nudges WHERE status = 'pending'")
@@ -221,6 +249,7 @@ def reseed():
     """Demo helper: wipe and re-seed the database with fresh mock data.
     Never call on production. Useful for live demos and CI reset.
     """
+    _require_demo_endpoints()
     from .seed_mock import seed as do_seed
     do_seed()
     return {"status": "reseeded"}

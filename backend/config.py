@@ -6,6 +6,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 DB_PATH = os.getenv("DB_PATH", "data/powerpool.db")
+# Households seeded into an EMPTY database on first start (80 = primary live config).
+SEED_HOUSEHOLDS = int(os.getenv("SEED_HOUSEHOLDS", "80"))
+# Destructive demo endpoints (/demo/reseed, /demo/simulate-responses). Disable in deployments.
+ENABLE_DEMO_ENDPOINTS = os.getenv("ENABLE_DEMO_ENDPOINTS", "true").strip().lower() in ("1", "true", "yes")
 FEEDER_CAPACITY_KW = float(os.getenv("FEEDER_CAPACITY_KW", "170"))
 COMPLIANCE = float(os.getenv("COMPLIANCE", "0.65"))       # share of nudges residents accept
 if not math.isfinite(COMPLIANCE) or not (0.0 < COMPLIANCE <= 1.0):
