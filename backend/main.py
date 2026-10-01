@@ -18,7 +18,7 @@ New endpoints (this file):
 """
 from contextlib import asynccontextmanager
 from typing import List, Optional, Union
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from . import services as svc
 from .config import slot_to_time, MOCK_DATA, SEED_HOUSEHOLDS, ENABLE_DEMO_ENDPOINTS
@@ -68,7 +68,7 @@ def health():
 @app.get("/forecast", response_model=Union[ForecastResponse, List[ForecastSlot]], tags=["forecast"])
 @app.get("/forecast/live", response_model=Union[ForecastResponse, List[ForecastSlot]], tags=["forecast"],
          summary="Live ML model inference using trained LightGBM model")
-def forecast(date: Optional[str] = None, scenario: Optional[str] = None,
+def forecast(request: Request, date: Optional[str] = None, scenario: Optional[str] = None,
              format: Optional[str] = None, live: bool = False):
     """96 × 15-minute slots.
     `data_source` = 'live_model' when live=True is passed;
@@ -78,7 +78,7 @@ def forecast(date: Optional[str] = None, scenario: Optional[str] = None,
     effective_date = guard(svc.resolve_date, date, scenario) or "2026-10-01"
 
     # Optional live ML model inference path
-    if live or "/forecast/live" in getattr(app, "_current_path", ""):
+    if live or request.url.path.rstrip("/").endswith("/forecast/live"):
         try:
             from ml.forecast_service import forecast_service
             import os

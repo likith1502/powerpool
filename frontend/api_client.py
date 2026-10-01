@@ -112,7 +112,7 @@ def _build_fallback_mock_state(scenario: str = "sunny") -> Dict[str, Any]:
         "solar_self_use_change_pct": 14.5 if not is_cloudy else 8.2,
         "co2_kg": round(kwh * 0.71, 2),
         "participants": 67,
-        "households": 100,
+        "households": 80,
         "peak_before_kw": peak_b,
         "peak_after_kw": peak_a,
         "rs_saved": round(kwh * 4.0, 2)

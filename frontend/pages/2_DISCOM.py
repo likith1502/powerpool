@@ -30,7 +30,7 @@ scenario = config["scenario"]
 lang = config.get("language", "en")
 
 st.title("📊 DISCOM Feeder Flexibility Command Center")
-st.caption("Hyderabad Neighbourhood Substation • 100 Residential Households • Feeder #HYD-17B")
+st.caption("Hyderabad Neighbourhood Substation • 80 Residential Households (live configuration) • Feeder #HYD-17B")
 
 # ── Optimization: only re-run when scenario changes or button pressed ──────────
 # Root-cause fix: auto-running optimize on EVERY page load was wiping resident
@@ -66,7 +66,7 @@ k1, k2, k3, k4, k5, k6 = st.columns(6)
 
 # Calculate participation rate from actual data (not hardcoded)
 participants = kpis.get("participants", 0)
-total_hh = kpis.get("households", 100)
+total_hh = kpis.get("households", 80)
 participation_pct = round(100 * participants / total_hh, 0) if total_hh > 0 else 0
 
 with k1:

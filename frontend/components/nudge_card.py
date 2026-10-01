@@ -37,7 +37,7 @@ def render_nudge_card(
         msg = nudge["message_te"]
     else:
         # English (or fallback for missing translation)
-        msg = nudge.get("message", f"Run your {appliance} at {to_time}.")
+        msg = nudge.get("message_en") or nudge.get("message", f"Run your {appliance} at {to_time}.")
 
     # ── Status badge and border colour ────────────────────────────────────────
     if status == "accepted":
@@ -83,7 +83,7 @@ def render_nudge_card(
                 </div>
                 <div>
                     <div style="color: #94A3B8; font-size: 0.75rem;">{lbl_savings}</div>
-                    <div style="color: #4ADE80; font-weight: 700;">₹{int(saving)}</div>
+                    <div style="color: #4ADE80; font-weight: 700;">₹{round(float(saving), 1):g}</div>
                 </div>
                 <div>
                     <div style="color: #94A3B8; font-size: 0.75rem;">{lbl_points}</div>

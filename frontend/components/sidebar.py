@@ -45,9 +45,9 @@ def render_sidebar():
 
     # Household ID selector
     household_id = st.sidebar.number_input(
-        "Select Household (1-100)",
+        "Select Household (1-80)",
         min_value=1,
-        max_value=100,
+        max_value=80,
         value=1,
         step=1,
         key="global_household_id",

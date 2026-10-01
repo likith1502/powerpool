@@ -92,6 +92,7 @@ class Nudge(BaseModel):
     message: str
     message_hi: Optional[str] = None
     message_te: Optional[str] = None
+    message_en: Optional[str] = None
 
 
 class NudgesResponse(BaseModel):

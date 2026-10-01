@@ -111,7 +111,7 @@ with w1:
 with w2:
     render_kpi_card(
         t("resident_wallet_savings_title", lang),
-        f"₹{int(st.session_state[_WALLET_SAV_KEY])}",
+        f"₹{round(float(st.session_state[_WALLET_SAV_KEY]), 1):g}",
         t("resident_wallet_savings_subtitle", lang),
         "💰"
     )
@@ -225,7 +225,7 @@ with col_right:
             <ul style="color: #CBD5E1; line-height: 1.8; margin-bottom: 0;">
                 <li><strong>{st.session_state[_WALLET_KWH_KEY]:.1f} kWh</strong> {solar_label}</li>
                 <li><strong>{co2_saved} kg CO₂</strong> {co2_label}</li>
-                <li><strong>₹{int(st.session_state[_WALLET_SAV_KEY])}</strong> {savings_label}</li>
+                <li><strong>₹{round(float(st.session_state[_WALLET_SAV_KEY]), 1):g}</strong> {savings_label}</li>
                 <li><strong>{st.session_state[_WALLET_PTS_KEY]}</strong> {points_label}</li>
             </ul>
         </div>

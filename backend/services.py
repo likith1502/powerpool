@@ -126,6 +126,9 @@ def save_shifts(shifts, source="optimize"):
 
 def run_optimize(date=None, scenario=None, compliance=None):
     with get_conn() as c:
+        prior = {(str(r["household_id"]), r["appliance_id"], r["from_slot"], r["to_slot"]): r["status"]
+                 for r in c.execute("SELECT household_id, appliance_id, from_slot, to_slot, status "
+                                    "FROM nudges WHERE status != 'pending'").fetchall()}
         c.execute("DELETE FROM nudges")
         # NOTE: household points are NOT reset here.
         # Points are only awarded/revoked via respond() so that prior resident
@@ -135,6 +138,12 @@ def run_optimize(date=None, scenario=None, compliance=None):
     comp = compliance if compliance is not None else COMPLIANCE
     shifts, _ = greedy_schedule(d, s, appliances(), compliance=comp)
     save_shifts(shifts)
+    if prior:  # keep residents' answers so a re-run cannot pay the same shift twice
+        with get_conn() as c:
+            for (hh, app_id, fs, ts), status in prior.items():
+                c.execute("UPDATE nudges SET status = ? WHERE household_id = ? AND appliance_id = ? "
+                          "AND from_slot = ? AND to_slot = ? AND status = 'pending'",
+                          (status, hh, app_id, fs, ts))
     before, after = after_curve(effective_date)
     pb, pa = max(before), max(after)
     kwh = sum(sh.kwh for sh in shifts)
@@ -208,6 +217,8 @@ def nudges_for(household_id):
         n["from_time"], n["to_time"] = slot_to_time(n["from_slot"]), slot_to_time(n["to_slot"])
         n["message"] = nudge_text(n["appliance"], n["from_slot"], n["to_slot"],
                                   n["points"], n["saving_rs"], lang)
+        n["message_en"] = nudge_text(n["appliance"], n["from_slot"], n["to_slot"],
+                                     n["points"], n["saving_rs"], "en")
         n["message_hi"] = nudge_text(n["appliance"], n["from_slot"], n["to_slot"],
                                      n["points"], n["saving_rs"], "hi")
         n["message_te"] = nudge_text(n["appliance"], n["from_slot"], n["to_slot"],

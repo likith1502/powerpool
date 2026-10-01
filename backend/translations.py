@@ -21,7 +21,7 @@ def nudge_text(appliance, from_slot, to_slot, points, saving, lang="en"):
     lang = lang if lang in TEMPLATES else "en"
     app = APPLIANCE_NAMES.get(appliance, {}).get(lang, appliance)
     return TEMPLATES[lang].format(app=app, t=slot_to_time(to_slot),
-                                  f=slot_to_time(from_slot), p=points, s=round(saving))
+                                  f=slot_to_time(from_slot), p=points, s=f"{round(float(saving), 1):g}")
 
 
 import os
@@ -53,7 +53,7 @@ def personalize_nudge(appliance: str, from_slot: int, to_slot: int, points: int,
         prompt = (
             f"Draft a concise, encouraging 1-sentence energy nudge in {lang}. "
             f"Action: shift {appliance} from {from_time} to {to_time}. "
-            f"Reward: {points} points and about Rs {round(saving)} savings. "
+            f"Reward: {points} points and about Rs {round(float(saving), 1):g} savings. "
             f"Tone: {tone}. Reply ONLY with the nudge sentence, no quotation marks."
         )
         msg = client.messages.create(

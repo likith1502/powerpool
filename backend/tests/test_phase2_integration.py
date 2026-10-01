@@ -142,8 +142,8 @@ def test_scenario_contrasts_preserved(client):
 def test_frontend_api_client_and_fallback():
     """10. Frontend imports successfully and fallback works deterministically."""
     # Test client initialization
-    client = PowerPoolAPIClient(base_url="http://127.0.0.1:8000")
-    assert client.base_url == "http://127.0.0.1:8000"
+    client = PowerPoolAPIClient(base_url="http://127.0.0.1:59999")
+    assert client.base_url == "http://127.0.0.1:59999"
 
     # Test self-contained mock fallback
     mock_sunny = _build_fallback_mock_state("sunny")
