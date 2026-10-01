@@ -57,6 +57,9 @@ class NudgeItem(BaseModel):
 class HouseholdNudgesResponse(BaseModel):
     household_id: int
     nudges: List[NudgeItem]
+    points: Optional[int] = 0
+    kwh_shifted: Optional[float] = 0.0
+    savings_rs: Optional[float] = 0.0
 
 
 class NudgeRespondRequest(BaseModel):
@@ -97,6 +100,7 @@ class DREventRequest(BaseModel):
     start_slot: int = Field(default=74, ge=0, le=95)
     end_slot: int = Field(default=88, ge=0, le=95)
     target_kw: float = 170.0
+    scenario: Optional[str] = "sunny"
 
 
 class DREventResponse(BaseModel):

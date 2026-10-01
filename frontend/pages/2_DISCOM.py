@@ -85,7 +85,7 @@ with c_left:
         dr_end = st.selectbox("DR End Slot / Time", options=[84, 86, 88, 90], format_func=lambda s: f"Slot {s} ({s//4:02d}:{(s%4)*15:02d})", index=2)
         
     if st.button("🚀 Trigger Instant Demand Response Event", type="primary", use_container_width=True):
-        dr_resp = api_client.trigger_dr_event(start_slot=dr_start, end_slot=dr_end, target_kw=170.0)
+        dr_resp = api_client.trigger_dr_event(start_slot=dr_start, end_slot=dr_end, target_kw=170.0, scenario=scenario)
         st.success(f"✅ {dr_resp.get('message')}")
         st.balloons()
 

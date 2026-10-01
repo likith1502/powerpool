@@ -131,6 +131,12 @@ class PowerPoolAPIClient:
         state = self._get_mock_state(scenario)
         nudges_map = state["nudges_map"]
         h_nudges = [n for n in nudges_map.values() if n["household_id"] == household_id]
+        households = state["scenario_data"]["households"]
+        h_info = next((h for h in households if h["household_id"] == household_id), None)
+        pts = h_info["points"] if h_info else 245
+        kwh = h_info["kwh_shifted_total"] if h_info else 12.4
+        saving = round(kwh * 6.5, 1)
+
         if not h_nudges:
             h_nudges = [{
                 "id": 900 + household_id,
@@ -146,7 +152,13 @@ class PowerPoolAPIClient:
                 "message_te": "మీ వాషింగ్ మెషీన్‌ను 13:00–14:00 సమయంలో నడపండి. 15 పాయింట్లు సంపాదించి సుమారు ₹8 ఆదా చేయండి.",
                 "status": "pending",
             }]
-        return {"household_id": household_id, "nudges": h_nudges}
+        return {
+            "household_id": household_id,
+            "nudges": h_nudges,
+            "points": pts,
+            "kwh_shifted": kwh,
+            "savings_rs": saving,
+        }
 
     def respond_to_nudge(self, nudge_id: int, accept: bool) -> Dict[str, Any]:
         """
@@ -228,7 +240,7 @@ class PowerPoolAPIClient:
             })
         return {"leaderboard": board}
 
-    def trigger_dr_event(self, start_slot: int = 74, end_slot: int = 88, target_kw: float = 170.0) -> Dict[str, Any]:
+    def trigger_dr_event(self, start_slot: int = 74, end_slot: int = 88, target_kw: float = 170.0, scenario: str = "sunny") -> Dict[str, Any]:
         """
         Triggers demand response event.
         """
@@ -236,7 +248,7 @@ class PowerPoolAPIClient:
             try:
                 resp = requests.post(
                     f"{self.base_url}/dr-event",
-                    json={"start_slot": start_slot, "end_slot": end_slot, "target_kw": target_kw},
+                    json={"start_slot": start_slot, "end_slot": end_slot, "target_kw": target_kw, "scenario": scenario},
                     timeout=TIMEOUT_SEC
                 )
                 if resp.status_code == 200:

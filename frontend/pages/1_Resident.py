@@ -31,15 +31,25 @@ scenario = config["scenario"]
 lang = config["language"]
 household_id = int(config["household_id"])
 
-# Session state initialization for points wallet
-if "resident_points" not in st.session_state:
-    st.session_state["resident_points"] = 245
-if "resident_savings" not in st.session_state:
-    st.session_state["resident_savings"] = 86.0
-if "resident_kwh" not in st.session_state:
-    st.session_state["resident_kwh"] = 12.4
+# Fetch nudges for current household & scenario
+nudges_res = api_client.get_nudges(household_id=household_id, scenario=scenario)
+nudges = nudges_res.get("nudges", [])
+
+# Session state initialization per household
 if "nudge_statuses" not in st.session_state:
     st.session_state["nudge_statuses"] = {}
+
+h_key = f"h_{household_id}_{scenario}"
+if h_key not in st.session_state:
+    st.session_state[h_key] = {
+        "points": nudges_res.get("points", 245),
+        "savings": nudges_res.get("savings_rs", 86.0),
+        "kwh": nudges_res.get("kwh_shifted", 12.4),
+    }
+
+st.session_state["resident_points"] = st.session_state[h_key]["points"]
+st.session_state["resident_savings"] = st.session_state[h_key]["savings"]
+st.session_state["resident_kwh"] = st.session_state[h_key]["kwh"]
 
 st.title(f"📱 Resident Portal — Household {household_id:02d}")
 st.caption("Smart Energy Assistant for your Neighbourhood Grid")
@@ -66,8 +76,6 @@ st.markdown("---")
 
 # 3. Recommended Smart Energy Actions (Nudges)
 st.markdown("#### **⚡ Recommended Smart Actions**")
-nudges_res = api_client.get_nudges(household_id=household_id, scenario=scenario)
-nudges = nudges_res.get("nudges", [])
 
 # Sync nudge status from session state
 for n in nudges:
@@ -82,10 +90,19 @@ def handle_nudge_response(nudge_id: int, accept: bool):
     st.session_state["nudge_statuses"][nudge_id] = status_str
     
     if accept:
-        st.session_state["resident_points"] += resp.get("points_added", 15)
-        st.session_state["resident_savings"] += resp.get("saving_rs", 8.0)
-        st.session_state["resident_kwh"] += 1.2
-        st.success(f"🎉 {resp.get('message', 'Nudge Accepted!')} Earned +{resp.get('points_added', 15)} points!")
+        pts_add = resp.get("points_added", 15)
+        save_add = resp.get("saving_rs", 8.0)
+        n_match = next((n for n in nudges if n["id"] == nudge_id), {})
+        kwh_add = n_match.get("kwh_shifted", 1.2)
+        
+        st.session_state[h_key]["points"] += pts_add
+        st.session_state[h_key]["savings"] += save_add
+        st.session_state[h_key]["kwh"] += kwh_add
+
+        st.session_state["resident_points"] = st.session_state[h_key]["points"]
+        st.session_state["resident_savings"] = st.session_state[h_key]["savings"]
+        st.session_state["resident_kwh"] = st.session_state[h_key]["kwh"]
+        st.success(f"🎉 {resp.get('message', 'Nudge Accepted!')} Earned +{pts_add} points!")
     else:
         st.info("Nudge skipped.")
 

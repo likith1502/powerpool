@@ -112,6 +112,13 @@ def get_household_nudges(
     nudges_map = state["nudges_map"]
     household_nudges = [n for n in nudges_map.values() if n["household_id"] == household_id]
     
+    # Household baseline metrics from scenario data
+    households = state["scenario_data"]["households"]
+    h_info = next((h for h in households if h["household_id"] == household_id), None)
+    pts = h_info["points"] if h_info else 245
+    kwh = h_info["kwh_shifted_total"] if h_info else 12.4
+    saving = round(kwh * 6.5, 1)
+
     # If no nudge exists for this household, generate a default fallback nudge
     if not household_nudges:
         household_nudges = [{
@@ -132,6 +139,9 @@ def get_household_nudges(
     return {
         "household_id": household_id,
         "nudges": household_nudges,
+        "points": pts,
+        "kwh_shifted": kwh,
+        "savings_rs": saving,
     }
 
 
@@ -210,7 +220,8 @@ def get_flex_capacity(scenario: str = Query("sunny")):
 
 @app.post("/dr-event", response_model=DREventResponse)
 def trigger_dr_event(req: DREventRequest):
-    state = get_current_system_state("sunny")
+    scenario = req.scenario or "sunny"
+    state = get_current_system_state(scenario)
     opt = state["optimization"]
     
     nudges_created = max(35, int(opt["nudges_created"] * 0.4))
