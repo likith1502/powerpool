@@ -41,8 +41,9 @@ The demo scope works end to end. Docker was built and run on the developer's Win
 - Load data is synthetic; 65% compliance is an assumption.
 - Stage 2 is an aggregate analytical curtailment model, not physical control of any device.
 - On a database with no load history, the live forecast uses synthetic lag inputs (peak ≈ 325 kW); use the precomputed scenario forecast for demos without history.
+- Demo from Docker or a fresh clone: on the developer laptop database, the Cloudy (316.6 kW) and Heatwave (388.9 kW) forecasts come from a different, larger configuration and stay above 170 kW after optimization. Sunny (196.0 → 169.7 kW) matches on both. To be reconciled in the prototype round.
 - 12 browser console 404s come from Streamlit static assets, not the API.
-- Docs that quote "155.5 kW optimized peak" describe 100% acceptance; the app at 65% compliance shows 169.7 kW (fresh DB). To be reconciled against the developer's production DB.
+- 155.5 kW is the peak only at 100% acceptance; at the 65% compliance assumption the app shows 169.7 kW (confirmed on both the fresh and the developer database).
 
 ## Commands
 
