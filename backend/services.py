@@ -138,6 +138,13 @@ def run_optimize(date=None, scenario=None, compliance=None):
     before, after = after_curve(effective_date)
     pb, pa = max(before), max(after)
     kwh = sum(sh.kwh for sh in shifts)
+
+    from .optimizer import evaluate_feasibility, simulate_stage2_dr
+    flex_apps = appliances()
+    total_flex_kw = sum(a["power_kw"] for a in flex_apps)
+    feasibility = evaluate_feasibility(before, after, capacity=FEEDER_CAPACITY_KW, available_flex_kw=total_flex_kw)
+    stage2_curve, stage2_peak, stage2_curtailed = simulate_stage2_dr(after, capacity=FEEDER_CAPACITY_KW)
+
     return {
         "before": to_points(before, solar_curve=s),
         "after": to_points(after, solar_curve=s),
@@ -145,7 +152,14 @@ def run_optimize(date=None, scenario=None, compliance=None):
         "peak_before_kw": round(pb, 2),
         "peak_after_kw": round(pa, 2),
         "peak_reduction_pct": round(100 * (pb - pa) / pb, 1) if pb else 0.0,
-        "kwh_shifted": round(kwh, 2)
+        "kwh_shifted": round(kwh, 2),
+        "capacity_kw": float(FEEDER_CAPACITY_KW),
+        "remaining_overload_kw": feasibility["remaining_overload_kw"],
+        "is_feasible": feasibility["is_feasible"],
+        "feasibility_status": feasibility["feasibility_status"],
+        "feasibility": feasibility,
+        "stage2_after": to_points(stage2_curve, solar_curve=s),
+        "stage2_peak_kw": stage2_peak
     }
 
 

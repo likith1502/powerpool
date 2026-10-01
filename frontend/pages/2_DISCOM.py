@@ -22,10 +22,12 @@ from frontend.components.sidebar import render_sidebar
 from frontend.components.cards import render_kpi_card
 from frontend.components.charts import render_before_after_chart, render_gap_chart
 from frontend.api_client import api_client
+from frontend.ui_strings import t
 
 # Sidebar configuration
 config = render_sidebar()
 scenario = config["scenario"]
+lang = config.get("language", "en")
 
 st.title("📊 DISCOM Feeder Flexibility Command Center")
 st.caption("Hyderabad Neighbourhood Substation • 100 Residential Households • Feeder #HYD-17B")
@@ -47,13 +49,19 @@ if st.session_state.get(_OPT_SCENARIO_KEY) != scenario:
 # Fetch forecast and current KPIs (read-only — no optimize call here)
 kpis = api_client.get_kpis(scenario=scenario)
 flex = api_client.get_flex_capacity(scenario=scenario)
-forecast_res = api_client.get_forecast(scenario=scenario)
-forecast_slots = forecast_res.get("slots", [])
 
 st.markdown("---")
 
 # 1. Six Key Metric Cards
-st.markdown("#### **Feeder Impact KPIs**")
+fc_col1, fc_col2 = st.columns([3, 1])
+with fc_col1:
+    st.markdown("#### **Feeder Impact KPIs**")
+with fc_col2:
+    use_live_model = st.toggle("⚡ Live ML Model Inference", value=False,
+                               help="Executes real-time LightGBM inference instead of precomputed scenario curves")
+
+forecast_res = api_client.get_forecast(scenario=scenario, live=use_live_model)
+forecast_slots = forecast_res.get("slots", [])
 k1, k2, k3, k4, k5, k6 = st.columns(6)
 
 # Calculate participation rate from actual data (not hardcoded)
@@ -116,6 +124,21 @@ if opt_res:
     before_slots = opt_res.get("before", [])
     after_slots = opt_res.get("after", [])
     if before_slots and after_slots:
+        is_feas = opt_res.get("is_feasible", False)
+        rem_overload = opt_res.get("remaining_overload_kw", max(0.0, opt_res.get("peak_after_kw", 0) - 170.0))
+        stage2_pk = opt_res.get("stage2_peak_kw", 170.0)
+
+        if is_feas:
+            st.success("🟢 **GRID FEASIBLE:** Feeder demand successfully maintained within 170.0 kW capacity limit across all 96 slots!")
+        else:
+            shaved_kw = round(opt_res.get("peak_before_kw", 0) - opt_res.get("peak_after_kw", 0), 1)
+            st.warning(
+                f"🟡 **STAGE 1 VOLUNTARY LOAD SHIFTING RESULT: PARTIAL RELIEF** — "
+                f"Peak shaved by **{opt_res.get('peak_reduction_pct', 0.0):.1f}%** ({shaved_kw} kW reduced).  \n"
+                f"**Remaining Overload:** {rem_overload:.1f} kW above 170 kW transformer capacity.  \n"
+                f"**Two-Stage Grid Framework:** Stage 1 executes voluntary appliance shifting. To eliminate the remaining overload, Stage 2 models the required automated emergency curtailment (EV throttle / thermostat setback) to cap net demand at **{stage2_pk:.1f} kW** (simulated grid-protection cap)."
+            )
+
         fig_ba = render_before_after_chart(
             before_slots,
             after_slots,
@@ -127,9 +150,11 @@ if opt_res:
 else:
     # Show forecast-only view before first optimize run
     if forecast_slots:
+        data_src = forecast_slots[0].get("data_source", "mock")
+        src_label = t("data_source_model", lang) if data_src == "model" else t("data_source_mock", lang)
         st.info(
             "📋 **Forecast only** — Run the optimizer to see the before/after load curve comparison. "
-            f"Data source: `{forecast_slots[0].get('data_source', 'mock')}` "
+            f"Data source: **{src_label}** "
             f"| Scenario: **{scenario.capitalize()}**"
         )
         from frontend.components.charts import render_forecast_chart

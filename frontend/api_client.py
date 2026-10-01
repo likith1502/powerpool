@@ -164,15 +164,17 @@ class PowerPoolAPIClient:
             self._mock_cache[sc_key] = _build_fallback_mock_state(sc_key)
         return self._mock_cache[sc_key]
 
-    def get_forecast(self, date: Optional[str] = None, scenario: str = "sunny") -> Dict[str, Any]:
+    def get_forecast(self, date: Optional[str] = None, scenario: str = "sunny", live: bool = False) -> Dict[str, Any]:
         """
-        Gets 96-slot forecast data.
+        Gets 96-slot forecast data. Supports live=True for live LightGBM model inference.
         """
         if not DEMO_MODE:
             try:
                 params = {"scenario": scenario}
                 if date:
                     params["date"] = date
+                if live:
+                    params["live"] = "true"
                 resp = requests.get(
                     f"{self.base_url}/forecast",
                     params=params,

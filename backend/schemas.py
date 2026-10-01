@@ -35,13 +35,28 @@ class ForecastSlot(BaseModel):
     capacity_kw: float
     gap_kw: float
     is_stress: bool
-    # 'mock' = seed_mock.py data; 'model' = Member A's ML pipeline.
-    data_source: Literal["mock", "model"] = "mock"
+    # 'mock' = synthetic seeded demo data; 'model' = Member A's pipeline precomputed scenario forecast; 'live_model' = real-time LightGBM inference.
+    data_source: Literal["mock", "model", "live_model"] = "mock"
+    model_type: Optional[str] = None
 
 
 class ForecastResponse(BaseModel):
     date: str
     slots: List[ForecastSlot]
+
+
+class FeasibilityReport(BaseModel):
+    target_capacity_kw: float = 170.0
+    baseline_peak_kw: float
+    optimized_peak_kw: float
+    peak_reduction_kw: float
+    peak_reduction_pct: float
+    remaining_overload_kw: float
+    available_flex_kw: float
+    stage2_curtailment_required_kw: float
+    is_feasible: bool
+    feasibility_status: str
+    limiting_factors: List[str] = []
 
 
 class OptimizeResponse(BaseModel):
@@ -52,6 +67,13 @@ class OptimizeResponse(BaseModel):
     peak_after_kw: float
     peak_reduction_pct: float
     kwh_shifted: float = 0.0
+    capacity_kw: float = 170.0
+    remaining_overload_kw: Optional[float] = None
+    is_feasible: Optional[bool] = None
+    feasibility_status: Optional[str] = None
+    feasibility: Optional[FeasibilityReport] = None
+    stage2_after: Optional[List[SlotPoint]] = None
+    stage2_peak_kw: Optional[float] = None
 
 
 class Nudge(BaseModel):

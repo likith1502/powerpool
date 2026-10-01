@@ -138,15 +138,30 @@ def train_demand_model(df_load_history: pd.DataFrame, weather_df: pd.DataFrame, 
     return model, metadata
 
 
+_CACHED_MODEL = None
+_CACHED_MODEL_TYPE = None
+
 def load_demand_model():
     """
-    Loads saved LightGBM model if available, otherwise returns SeasonalBaseline model.
+    Loads saved LightGBM model if available (handling Windows CRLF safely),
+    caches the instance, or falls back to SeasonalBaseline model.
     """
+    global _CACHED_MODEL, _CACHED_MODEL_TYPE
+    if _CACHED_MODEL is not None:
+        return _CACHED_MODEL, _CACHED_MODEL_TYPE
+
     if LIGHTGBM_AVAILABLE and os.path.exists(MODEL_PATH):
         try:
-            model = lgb.Booster(model_file=MODEL_PATH)
-            return model, "LightGBM"
+            with open(MODEL_PATH, "r", encoding="utf-8") as f:
+                model_str = f.read()
+            model = lgb.Booster(model_str=model_str)
+            _CACHED_MODEL = model
+            _CACHED_MODEL_TYPE = "LightGBM"
+            logger.info(f"Loaded LightGBM model from {MODEL_PATH} ({model.num_trees()} trees)")
+            return _CACHED_MODEL, _CACHED_MODEL_TYPE
         except Exception as e:
-            logger.warning(f"Could not load LightGBM model file ({e}). Using baseline.")
+            logger.warning(f"Could not load LightGBM model file ({e}). Using baseline fallback.")
 
-    return SeasonalBaselineModel(), "SeasonalBaseline"
+    _CACHED_MODEL = SeasonalBaselineModel()
+    _CACHED_MODEL_TYPE = "SeasonalBaseline"
+    return _CACHED_MODEL, _CACHED_MODEL_TYPE

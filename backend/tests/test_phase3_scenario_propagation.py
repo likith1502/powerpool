@@ -65,11 +65,11 @@ def test_kpis_scenario_date_resolution(client):
     assert res_heatwave.status_code == 200
 
 
-def test_kpis_distinct_scenario_data(client):
+def test_kpis_distinct_scenario_data(fresh_client):
     """2. The three scenario KPI responses use corresponding scenario data."""
-    sunny = client.get("/kpis?scenario=sunny").json()
-    cloudy = client.get("/kpis?scenario=cloudy").json()
-    heatwave = client.get("/kpis?scenario=heatwave").json()
+    sunny = fresh_client.get("/kpis?scenario=sunny").json()
+    cloudy = fresh_client.get("/kpis?scenario=cloudy").json()
+    heatwave = fresh_client.get("/kpis?scenario=heatwave").json()
 
     # Verify all three scenarios produce distinct KPI metrics
     assert sunny["peak_before_kw"] != cloudy["peak_before_kw"]

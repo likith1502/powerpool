@@ -194,14 +194,14 @@ _STRINGS: Dict[str, Dict[str, str]] = {
     },
     # ── Data provenance labels ───────────────────────────────────────────────
     "data_source_mock": {
-        "en": "📋 Seeded scenario data",
-        "hi": "📋 सीडेड परिदृश्य डेटा",
-        "te": "📋 సీడెడ్ దృశ్య డేటా",
+        "en": "📋 Seeded demo data",
+        "hi": "📋 सीडेड डेमो डेटा",
+        "te": "📋 సీడెడ్ డెమో డేటా",
     },
     "data_source_model": {
-        "en": "🤖 ML model forecast",
-        "hi": "🤖 ML मॉडल पूर्वानुमान",
-        "te": "🤖 ML మోడల్ అంచనా",
+        "en": "📊 Precomputed scenario forecast",
+        "hi": "📊 पूर्व-गणना परिदृश्य पूर्वानुमान",
+        "te": "📊 ముందస్తు గణన దృశ్య అంచనా",
     },
 }
 
