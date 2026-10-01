@@ -34,7 +34,7 @@ async def lifespan(app):
     init_db()
     if not rows("SELECT 1 FROM forecast LIMIT 1"):   # empty DB on fresh deploy
         from .seed_mock import seed
-        seed()
+        seed(n_households=100)
     yield
 
 
@@ -55,12 +55,12 @@ def guard(fn, *a, **k):
 
 @app.get("/")
 def root():
-    return {"status": "ok", "message": "PowerPool API", "mock_data": MOCK_DATA}
+    return {"status": "ok", "message": "PowerPool API", "mock_data": bool(MOCK_DATA)}
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "mock_data": MOCK_DATA}
+    return {"status": "ok", "mock_data": bool(MOCK_DATA)}
 
 
 # ── Forecast ──────────────────────────────────────────────────────────────────

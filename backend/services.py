@@ -34,7 +34,7 @@ def resolve_date(date=None, scenario=None):
 
 # ---------- loading ----------
 def load_forecast(date=None, scenario=None):
-    date = resolve_date(date, scenario)
+    date = resolve_date(date, scenario) or "2026-10-01"
 
     sql = "SELECT * FROM forecast"
     params = ()
@@ -79,6 +79,8 @@ def shifts_from_db():
 
 
 def normalize_household_id(household_id):
+    if household_id is None:
+        return ""
     s = str(household_id).strip()
     if s.isdigit():
         return f"HH{int(s):03d}"
@@ -128,7 +130,7 @@ def run_optimize(date=None, scenario=None, compliance=None):
         # NOTE: household points are NOT reset here.
         # Points are only awarded/revoked via respond() so that prior resident
         # acceptances survive an optimizer re-run on the DISCOM dashboard.
-    effective_date = resolve_date(date, scenario)
+    effective_date = resolve_date(date, scenario) or "2026-10-01"
     d, s = curves(effective_date)
     comp = compliance if compliance is not None else COMPLIANCE
     shifts, _ = greedy_schedule(d, s, appliances(), compliance=comp)
@@ -148,7 +150,7 @@ def run_optimize(date=None, scenario=None, compliance=None):
 
 
 def run_dr_event(start, end, target_kw, date=None, scenario=None):
-    effective_date = resolve_date(date, scenario)
+    effective_date = resolve_date(date, scenario) or "2026-10-01"
     d, s = curves(effective_date)
     window = list(range(start, end + 1)) if start <= end else \
         list(range(start, 96)) + list(range(0, end + 1))
@@ -265,7 +267,7 @@ def solar_self_use(demand_net, solar):
 
 
 def kpis(date=None, scenario=None):
-    effective_date = resolve_date(date, scenario)
+    effective_date = resolve_date(date, scenario) or "2026-10-01"
     _, s = curves(effective_date)
     before, after = after_curve(effective_date)
     weighted = shifts_from_db()
