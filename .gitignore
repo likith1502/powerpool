@@ -216,3 +216,15 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# PowerPool project-specific
+# SQLite databases generated at runtime by db.py / seed_mock.py / tests
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+# The runtime data/ directory is created automatically on first run.
+# Its contents are gitignored; the directory itself is tracked via .gitkeep.
+data/
+!data/.gitkeep
+# .env is already covered above in the "# Environments" section

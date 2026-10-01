@@ -1,0 +1,10 @@
+fastapi==0.115.*
+uvicorn[standard]==0.30.*
+pydantic==2.*
+python-dotenv==1.*
+requests
+httpx
+pytest
+anthropic
+# stretch
+python-telegram-bot==21.*

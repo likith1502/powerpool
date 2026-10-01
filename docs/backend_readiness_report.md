@@ -1,0 +1,336 @@
+﻿# PowerPool — Backend Readiness Report
+
+> **Generated:** 2026-10-01  **Branch:** `backend`  **Author:** Member B
+> **Baseline tests (before this session):** 5 passed
+> **Tests after this session:** 20 passed, 1 skipped
+
+---
+
+## 1. Actual Current State
+
+### Git status
+- Branch: `backend` — one commit (`426e3c6 Initial commit`)
+- All working-tree changes are **unstaged** — nothing committed or pushed
+
+### Backend modules
+
+| File | Purpose |
+|---|---|
+| `config.py` | Settings from .env — tariffs, DB path, `MOCK_DATA` flag |
+| `db.py` | SQLite schema, `get_conn()` context manager, `rows()` helper |
+| `main.py` | FastAPI app — all routes + aliases + `/nudge/send` |
+| `mock_main.py` | Zero-DB hard-coded stub for Member C (keep until C is ready) |
+| `optimizer.py` | Pure-function greedy load-shift scheduler |
+| `schemas.py` | Pydantic request/response models (versioned API contract) |
+| `seed_mock.py` | Synthetic data: 80 HH, ~275 appliances, 96-slot forecast |
+| `services.py` | Business logic: nudges, KPIs, DR events, leaderboard, flex |
+| `telegram_bot.py` | Standalone bot script — NOT an HTTP endpoint |
+| `translations.py` | en/hi/te nudge text + optional Claude polish |
+
+---
+
+## 2. Endpoint Gap Analysis — Planned vs Implemented
+
+| Planned endpoint | Implemented as | Status |
+|---|---|---|
+| `GET /forecast` | `GET /forecast` | IMPLEMENTED — now includes `data_source` field |
+| `POST /schedule/run` | `POST /optimize` | ALIAS ADDED — both paths work |
+| `GET /schedule/{home_id}` | `GET /nudges/{household_id}` | ALIAS ADDED — both paths work |
+| `GET /metrics` | `GET /kpis` | ALIAS ADDED — both paths work |
+| `GET /leaderboard` | `GET /leaderboard` | EXACT MATCH — unchanged |
+| `POST /nudge/send` | `POST /nudge/send` | ADDED — returns text preview, no real Telegram push |
+
+### Additional routes retained (not in plan)
+
+| Route | Purpose |
+|---|---|
+| `GET /health` | Liveness — essential for Render |
+| `GET /households` | All 80 households |
+| `POST /nudges/{id}/respond` | Accept or skip a nudge |
+| `POST /dr-event` | Targeted demand-response event |
+| `GET /flex-capacity` | Available flexible load per hour |
+| `POST /demo/simulate-responses` | Bulk accept ~65% of pending nudges |
+| `POST /demo/reseed` | Wipe + re-seed DB (safe for CI and demos) |
+
+---
+
+## 3. Proposed JSON Contracts
+
+> Fields marked NEEDS TEAM AGREEMENT must be confirmed with Members A and C
+> before being treated as stable.
+
+### 3.1 Forecast — GET /forecast?date=YYYY-MM-DD
+
+```json
+{
+  "slot": 0,
+  "time": "00:00",
+  "demand_kw": 75.0,
+  "solar_kw": 0.0,
+  "capacity_kw": 170.0,
+  "gap_kw": -95.0,
+  "is_stress": false,
+  "data_source": "mock"
+}
+```
+NEEDS TEAM AGREEMENT: `data_source` values — "mock" vs "model". Set `MOCK_DATA=false` in .env when Member A's pipeline is live.
+
+### 3.2 Schedule Run — POST /schedule/run (alias: POST /optimize)
+
+```json
+{
+  "before": [{ "slot": 0, "time": "00:00", "demand_kw": 75.0 }],
+  "after":  [{ "slot": 0, "time": "00:00", "demand_kw": 73.5 }],
+  "nudges_created": 143,
+  "peak_before_kw": 196.0,
+  "peak_after_kw": 163.0,
+  "peak_reduction_pct": 16.8
+}
+```
+
+### 3.3 Household Schedule — GET /schedule/{home_id} (alias: GET /nudges/{id})
+
+```json
+{
+  "id": 1,
+  "household_id": 12,
+  "appliance_id": 34,
+  "appliance": "Washing machine",
+  "from_slot": 78, "to_slot": 52,
+  "from_time": "19:30", "to_time": "13:00",
+  "kwh_shifted": 0.5,
+  "points": 5,
+  "saving_rs": 1.5,
+  "status": "pending",
+  "message": "Run your Washing machine at 13:00 today instead of 19:30. Earn 5 points and save about Rs 2."
+}
+```
+
+### 3.4 Impact Metrics — GET /metrics (alias: GET /kpis)
+
+```json
+{
+  "peak_before_kw": 196.0,
+  "peak_after_kw": 163.0,
+  "peak_reduction_pct": 16.8,
+  "kwh_shifted": 99.0,
+  "rs_saved": 297.0,
+  "co2_kg": 70.3,
+  "solar_self_use_pct_before": 78.0,
+  "solar_self_use_pct": 92.0,
+  "participants": 22,
+  "total_households": 80,
+  "transformer_risk": "MEDIUM"
+}
+```
+`transformer_risk`: "LOW" | "MEDIUM" | "HIGH"
+
+### 3.5 Leaderboard — GET /leaderboard?limit=10
+
+```json
+{ "rank": 1, "household_id": 5, "name": "Reddy #5", "block": "Block B", "points": 120 }
+```
+
+### 3.6 Nudge Send — POST /nudge/send
+
+```json
+// Request
+{ "household_id": 12, "nudge_id": null }
+
+// Response
+{
+  "household_id": 12,
+  "nudges_queued": 3,
+  "channel": "api_only",
+  "delivered": false,
+  "messages": ["Run your Washing machine at 13:00..."]
+}
+```
+NEEDS TEAM AGREEMENT: Should HTTP endpoint push directly to Telegram, or stay as text preview only?
+
+---
+
+## 4. Mock Data Strategy
+
+### What seed_mock.py provides
+
+| Table | Content | Method |
+|---|---|---|
+| `households` | 80 households | Deterministic (random.seed=42 inside seed()) |
+| `appliances` | ~275 appliances (3-4/HH) | 6 appliance types with slot windows |
+| `forecast` | 96 slots for 2026-10-01 | Gaussian demand + sinusoidal solar |
+| `nudges` | 0 at seed time | Generated by POST /optimize |
+
+### Switching from mock to real data
+
+1. Member A writes 96 rows to the `forecast` table for today's date
+2. Set `MOCK_DATA=false` in `.env` (or Render env vars)
+3. Call `POST /schedule/run` — backend reads real forecast, generates real nudges
+4. `/forecast` response now shows `"data_source": "model"`
+
+### Mock data limitations
+
+| Limitation | Impact |
+|---|---|
+| Single date (2026-10-01) only | `?date=` for other dates returns HTTP 503 |
+| Synthetic Gaussian demand | KPIs are plausible but not grid-accurate |
+| No `load_history` or `weather` rows | Tables exist but empty |
+| `solar_kw` is deterministic sine | No cloud/weather variation |
+
+---
+
+## 5. Tests and Results
+
+### Before this session: 5 passed
+### After this session: 20 passed, 1 skipped
+
+| # | Test | What it covers |
+|---|---|---|
+| 1 | test_health | /health + mock_data field |
+| 2 | test_forecast_shape | 96 slots + all 8 fields including data_source |
+| 3 | test_optimize_reduces_peak | POST /optimize business invariant |
+| 4 | test_households | 80 rows, correct shape |
+| 5 | test_nudges_and_respond | Nudge fetch + accept + point award |
+| 6 | test_kpis | All fields, transformer_risk enum, kwh > 0 |
+| 7 | test_leaderboard | Rank ordering |
+| 8 | test_dr_event | DR event creates nudges |
+| 9 | test_flex_capacity | 24 hourly items |
+| 10 | test_schedule_run_alias | POST /schedule/run == POST /optimize |
+| 11 | test_schedule_household_alias | GET /schedule/{id} == GET /nudges/{id} |
+| 12 | test_metrics_alias | GET /metrics == GET /kpis |
+| 13 | test_nudge_send_no_token | /nudge/send preview, no real push |
+| 14 | test_nudge_send_specific_nudge | SKIPPED (correct: pending nudges consumed mid-session) |
+| 15 | test_nudge_send_unknown_household | 0 nudges for nonexistent HH |
+| 16 | test_demo_reseed | POST /demo/reseed -> 80 households |
+| 17 | test_demo_simulate_responses | Bulk compliance simulation |
+| 18 | test_peak_reduced | Greedy scheduler reduces peak |
+| 19 | test_no_move_into_stress_or_outside_window | Constraint correctness |
+| 20 | test_each_appliance_once | No appliance scheduled twice |
+| 21 | test_prefers_solar_slots | Solar surplus targeting |
+
+### Test coverage gaps
+
+| Gap | Suggested test |
+|---|---|
+| translations hi/te | `assert "वॉशिंग" in nudge_text("Washing machine", 78, 52, 5, 1.5, "hi")` |
+| llm_translate (Claude) | Patch `anthropic.Anthropic` with unittest.mock |
+| telegram_bot.py | Mock `Application.builder` |
+| Multi-day forecast | Seed 2 dates, query `?date=2026-10-02` |
+| 404 on bad nudge ID | `assert client.post("/nudges/99999/respond", ...).status_code == 404` |
+
+---
+
+## 6. Future Integration Steps for Member A
+
+### Required deliverable
+96 rows per day in the `forecast` table. Schema:
+
+```sql
+INSERT INTO forecast (timestamp, demand_kw, solar_kw, capacity_kw, gap_kw, is_stress)
+VALUES ('2026-10-01T06:00:00', 142.3, 0.0, 170.0, -27.7, 0);
+```
+
+### Handoff checklist
+- [ ] Run `python -m backend.seed_mock` first (populates households + appliances)
+- [ ] Write 96 rows for today's date to the `forecast` table
+- [ ] Set `MOCK_DATA=false` in `.env` or Render env vars
+- [ ] Confirm `/forecast` returns `"data_source": "model"` before the demo
+- [ ] Optionally populate `load_history` and `weather` tables (unused by optimizer today)
+
+---
+
+## 7. Future Integration Steps for Member C
+
+### During development (no real backend needed)
+
+```powershell
+uvicorn backend.mock_main:app --reload --port 8001
+```
+
+### Real backend endpoints (use planned names)
+
+| Feature | Endpoint |
+|---|---|
+| Load/solar chart | GET /forecast |
+| Run optimizer button | POST /schedule/run |
+| Per-household schedule | GET /schedule/{home_id} |
+| Dashboard KPIs | GET /metrics |
+| Leaderboard | GET /leaderboard?limit=10 |
+| Accept/skip nudge | POST /nudges/{id}/respond |
+| Push nudge preview | POST /nudge/send |
+| Flex capacity heatmap | GET /flex-capacity |
+
+### Items needing team agreement
+- `data_source` vocabulary on `/forecast`
+- `/nudge/send` delivery model (preview vs real Telegram push)
+- Canonical path names (`/schedule/run` or `/optimize`?)
+
+---
+
+## 8. Deployment Risks
+
+| Risk | Severity | Mitigation |
+|---|---|---|
+| SQLite ephemeral disk on Render | High | Mount Render Persistent Disk or use Postgres |
+| Member A pipeline missing at demo | High | `MOCK_DATA=true` — seeded data is demo-ready |
+| TELEGRAM_TOKEN missing | Low | `/nudge/send` works as api_only; bot simply won't start |
+| ANTHROPIC_API_KEY missing | Low | Template text fallback in translations.py |
+| CORS allow_origins=* | Low (hackathon) | Restrict before public launch |
+| SQLite concurrent writes (multi-worker) | Medium | Use single uvicorn worker on Render |
+| Single-day mock data | Medium | Add more seed dates or wait for Member A |
+
+---
+
+## 9. Prioritized Implementation Plan
+
+### P0 — Before committing / first demo
+- [ ] Confirm route naming with team (canonical: /schedule/run or /optimize?)
+- [ ] Confirm /nudge/send delivery model with team
+- [ ] Add MOCK_DATA=true to Render env vars
+- [ ] Commit working tree to `backend` branch
+
+### P1 — Before Member A integrates
+- [ ] Agree and document forecast table write protocol
+- [ ] Add test for multi-day `?date=` filtering
+- [ ] (Optional) Add POST /forecast/ingest so Member A can push via HTTP
+
+### P2 — Before Member C integrates
+- [ ] Add `updated_at` timestamp to /forecast response
+- [ ] Finalise data_source vocabulary
+- [ ] (Optional) Add paginated /households?page=&size=
+
+### P3 — Before production
+- [ ] Replace SQLite with Postgres
+- [ ] Add authentication to mutating endpoints
+- [ ] Restrict CORS to frontend origin
+- [ ] Add rate limiting to /nudge/send
+- [ ] Implement real Telegram push in /nudge/send
+
+---
+
+## 10. Changes Made in This Session
+
+### Files modified
+| File | Change |
+|---|---|
+| `backend/config.py` | Added `MOCK_DATA` bool (reads from .env, default true) |
+| `backend/schemas.py` | `data_source` field on `ForecastSlot`; `NudgeSendRequest` + `NudgeSendResponse` |
+| `backend/main.py` | Route aliases; POST /nudge/send; POST /demo/reseed; data_source in forecast; version 1.1 |
+| `backend/seed_mock.py` | `random.seed(42)` moved inside `seed()` for deterministic repeated calls |
+| `backend/tests/test_api.py` | Rewrote to use conftest fixture; 16 new tests added |
+| `.env.example` | Added `MOCK_DATA=true` |
+
+### Files created
+| File | Purpose |
+|---|---|
+| `backend/tests/conftest.py` | Session-scoped DB seeding + `client` fixture |
+| `docs/backend_readiness_report.md` | This report |
+
+### Files NOT modified
+`backend/optimizer.py` · `backend/services.py` · `backend/db.py` ·
+`backend/telegram_bot.py` · `backend/translations.py` · `backend/mock_main.py` ·
+`backend/__init__.py` · `render.yaml` · `pytest.ini` · `README.md` ·
+`.gitignore` · `data-ml/` · `frontend/` · `docs/api-contract.md` · `docs/architecture.md`
+
+> No git add, git commit, git push, git merge, or branch switch was performed.
+> All changes are working-tree modifications only.
