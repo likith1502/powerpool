@@ -1,4 +1,4 @@
-﻿# PowerPool — API Contract
+# PowerPool — API Contract
 
 Base URL: `http://localhost:8000` (dev) / Render URL (prod)
 All responses are JSON. All timestamps are ISO-8601 strings.
@@ -63,7 +63,7 @@ Both paths return identical responses.
 
 ### `GET /households`
 ```json
-[{ "id": 1, "name": "Sharma #1", "type": "low", "block": "Block A", "language": "en", "points": 50 }]
+[{ "id": "HH001", "name": "Mid Household 1", "type": "mid", "block": "Block B", "language": "hi", "points": 50 }]
 ```
 
 ---
@@ -76,22 +76,22 @@ Returns all nudges for one household (all statuses). Returns `[]` for unknown ho
 ```json
 [{
   "id": 1,
-  "household_id": 1,
-  "appliance_id": 3,
+  "household_id": "HH001",
+  "appliance_id": 1916,
   "appliance": "Washing machine",
-  "from_slot": 78, "to_slot": 52,
-  "from_time": "19:30", "to_time": "13:00",
-  "kwh_shifted": 0.5,
-  "points": 5,
-  "saving_rs": 1.5,
+  "from_slot": 74, "to_slot": 44,
+  "from_time": "18:30", "to_time": "11:00",
+  "kwh_shifted": 1.4,
+  "points": 14,
+  "saving_rs": 4.2,
   "status": "pending",
-  "message": "Run your Washing machine at 13:00 today instead of 19:30. Earn 5 points and save about Rs 2."
+  "message": "आज अपनी वॉशिंग मशीन 18:30 के बजाय 11:00 बजे चलाएँ। 14 पॉइंट पाएँ और लगभग ₹4 बचाएँ।"
 }]
 ```
 
 ### `POST /nudges/{nudge_id}/respond`
 **Request:** `{ "accept": true }`
-**Response:** `{ "nudge_id": 1, "status": "accepted", "household_points": 55 }`
+**Response:** `{ "nudge_id": 1, "status": "accepted", "household_points": 64 }`
 **Error:** HTTP 404 if nudge_id does not exist.
 
 ---
@@ -103,18 +103,18 @@ Assembles nudge text for a household. Does not make real Telegram calls unless `
 
 **Request:**
 ```json
-{ "household_id": 12, "nudge_id": null }
+{ "household_id": "HH001", "nudge_id": null }
 ```
 `nudge_id`: omit or `null` to target all pending nudges for the household.
 
 **Response:**
 ```json
 {
-  "household_id": 12,
-  "nudges_queued": 3,
+  "household_id": "HH001",
+  "nudges_queued": 1,
   "channel": "api_only",
   "delivered": false,
-  "messages": ["Run your Washing machine at 13:00 today instead of 19:30. Earn 5 points and save about Rs 2."]
+  "messages": ["आज अपनी वॉशिंग मशीन 18:30 के बजाय 11:00 बजे चलाएँ। 14 पॉइंट पाएँ और लगभग ₹4 बचाएँ।"]
 }
 ```
 `channel`: `"api_only"` when no token is set; `"telegram"` when `TELEGRAM_TOKEN` is present.
@@ -138,7 +138,7 @@ All values are simulated projections. Both paths return identical responses.
   "solar_self_use_pct_before": 78.0,
   "solar_self_use_pct": 92.0,
   "participants": 22,
-  "total_households": 80,
+  "total_households": 100,
   "transformer_risk": "MEDIUM"
 }
 ```
@@ -150,7 +150,7 @@ All values are simulated projections. Both paths return identical responses.
 
 ### `GET /leaderboard?limit=10`
 ```json
-[{ "rank": 1, "household_id": 5, "name": "Reddy #5", "block": "Block B", "points": 120 }]
+[{ "rank": 1, "household_id": "HH001", "name": "Mid Household 1", "block": "Block B", "points": 120 }]
 ```
 
 ---

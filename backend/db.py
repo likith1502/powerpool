@@ -6,21 +6,21 @@ from .config import DB_PATH
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS households(
-  id INTEGER PRIMARY KEY, name TEXT, type TEXT, block TEXT,
+  id TEXT PRIMARY KEY, name TEXT, type TEXT, block TEXT,
   language TEXT DEFAULT 'en', points INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS appliances(
-  id INTEGER PRIMARY KEY, household_id INTEGER, name TEXT, power_kw REAL,
+  id INTEGER PRIMARY KEY, household_id TEXT, name TEXT, power_kw REAL,
   duration_slots INTEGER, flexible INTEGER, earliest_slot INTEGER,
   latest_slot INTEGER, usual_slot INTEGER);
 CREATE TABLE IF NOT EXISTS load_history(
-  household_id INTEGER, timestamp TEXT, kwh REAL);
+  household_id TEXT, timestamp TEXT, kwh REAL);
 CREATE TABLE IF NOT EXISTS weather(
   timestamp TEXT, temp_c REAL, cloud_cover REAL, irradiance_wm2 REAL);
 CREATE TABLE IF NOT EXISTS forecast(
   timestamp TEXT, demand_kw REAL, solar_kw REAL, capacity_kw REAL,
   gap_kw REAL, is_stress INTEGER);
 CREATE TABLE IF NOT EXISTS nudges(
-  id INTEGER PRIMARY KEY AUTOINCREMENT, household_id INTEGER, appliance_id INTEGER,
+  id INTEGER PRIMARY KEY AUTOINCREMENT, household_id TEXT, appliance_id INTEGER,
   from_slot INTEGER, to_slot INTEGER, kwh_shifted REAL, points INTEGER,
   saving_rs REAL, status TEXT DEFAULT 'pending', source TEXT DEFAULT 'optimize');
 """
@@ -41,6 +41,9 @@ def get_conn():
 def init_db():
     with get_conn() as c:
         c.executescript(SCHEMA)
+        columns = [row[1] for row in c.execute("PRAGMA table_info(nudges)").fetchall()]
+        if "source" not in columns:
+            c.execute("ALTER TABLE nudges ADD COLUMN source TEXT DEFAULT 'optimize'")
 
 
 def rows(sql, params=()):

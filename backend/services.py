@@ -34,7 +34,7 @@ def shifts_from_db():
     out = []
     for n in rows("SELECT n.*, a.power_kw, a.duration_slots FROM nudges n "
                   "JOIN appliances a ON a.id = n.appliance_id"):
-        sh = Shift(n["household_id"], n["appliance_id"], n["from_slot"], n["to_slot"],
+        sh = Shift(str(n["household_id"]), n["appliance_id"], n["from_slot"], n["to_slot"],
                    n["duration_slots"], n["power_kw"])
         out.append((sh, WEIGHT[n["status"]]))
     return out
@@ -57,7 +57,7 @@ def save_shifts(shifts, source="optimize"):
             c.execute("INSERT INTO nudges(household_id, appliance_id, from_slot, to_slot,"
                       " kwh_shifted, points, saving_rs, status, source)"
                       " VALUES (?,?,?,?,?,?,?,'pending',?)",
-                      (sh.household_id, sh.appliance_id, sh.from_slot, sh.to_slot,
+                      (str(sh.household_id), sh.appliance_id, sh.from_slot, sh.to_slot,
                        sh.kwh, sh.points, sh.saving_rs, source))
 
 
@@ -96,12 +96,12 @@ def run_dr_event(start, end, target_kw, date=None):
 
 # ---------- residents ----------
 def nudges_for(household_id):
-    hh = rows("SELECT language FROM households WHERE id = ?", (household_id,))
+    hh = rows("SELECT language FROM households WHERE id = ?", (str(household_id),))
     lang = hh[0]["language"] if hh else "en"
     out = []
     for n in rows("SELECT n.*, a.name AS appliance FROM nudges n JOIN appliances a "
                   "ON a.id = n.appliance_id WHERE n.household_id = ? ORDER BY n.to_slot",
-                  (household_id,)):
+                  (str(household_id),)):
         n["from_time"], n["to_time"] = slot_to_time(n["from_slot"]), slot_to_time(n["to_slot"])
         n["message"] = nudge_text(n["appliance"], n["from_slot"], n["to_slot"],
                                   n["points"], n["saving_rs"], lang)
@@ -115,15 +115,16 @@ def respond(nudge_id, accept):
         if n is None:
             return None
         new = "accepted" if accept else "skipped"
+        hh_id = str(n["household_id"])
         if n["status"] != "accepted" and new == "accepted":
             c.execute("UPDATE households SET points = points + ? WHERE id = ?",
-                      (n["points"], n["household_id"]))
+                      (n["points"], hh_id))
         if n["status"] == "accepted" and new == "skipped":
             c.execute("UPDATE households SET points = points - ? WHERE id = ?",
-                      (n["points"], n["household_id"]))
+                      (n["points"], hh_id))
         c.execute("UPDATE nudges SET status = ? WHERE id = ?", (new, nudge_id))
         pts = c.execute("SELECT points FROM households WHERE id = ?",
-                        (n["household_id"],)).fetchone()["points"]
+                        (hh_id,)).fetchone()["points"]
     return {"nudge_id": nudge_id, "status": new, "household_points": pts}
 
 

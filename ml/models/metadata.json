@@ -1,0 +1,24 @@
+{
+  "model_type": "LightGBM",
+  "features": [
+    "slot",
+    "hour",
+    "minute",
+    "day_of_week",
+    "is_weekend",
+    "temp_c",
+    "cloud_cover",
+    "lag_1",
+    "lag_4",
+    "lag_96",
+    "lag_192",
+    "rolling_mean_4",
+    "rolling_mean_96"
+  ],
+  "training_start": "2026-09-01 00:00:00",
+  "training_end": "2026-09-30 23:45:00",
+  "mape": 2.77,
+  "mae": 2.1,
+  "rmse": 2.9,
+  "random_seed": 42
+}

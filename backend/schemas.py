@@ -6,7 +6,7 @@ The original internal names (e.g. /optimize, /kpis, /nudges) are kept.
 The planned external names (/schedule/run, /metrics, /schedule/{home_id})
 are served as additive aliases in main.py so both paths work.
 """
-from typing import List, Literal, Optional
+from typing import List, Literal, Optional, Union
 from pydantic import BaseModel, Field
 
 
@@ -41,7 +41,7 @@ class OptimizeResponse(BaseModel):
 
 class Nudge(BaseModel):
     id: int
-    household_id: int
+    household_id: Union[str, int]
     appliance_id: int
     appliance: str
     from_slot: int
@@ -81,7 +81,7 @@ class KPIs(BaseModel):
 
 class LeaderRow(BaseModel):
     rank: int
-    household_id: int
+    household_id: Union[str, int]
     name: str
     block: str
     points: int
@@ -106,7 +106,7 @@ class FlexHour(BaseModel):
 
 
 class Household(BaseModel):
-    id: int
+    id: Union[str, int]
     name: str
     type: str
     block: str
@@ -119,7 +119,7 @@ class Household(BaseModel):
 # return a delivery receipt, or both? For now the backend assembles the
 # nudge text and returns a preview without making any real Telegram calls.
 class NudgeSendRequest(BaseModel):
-    household_id: int = Field(gt=0, description="Target household")
+    household_id: Union[str, int] = Field(description="Target household")
     nudge_id: Optional[int] = Field(
         default=None,
         description="Specific nudge to send. Omit to send all pending nudges for the household.",
@@ -127,7 +127,7 @@ class NudgeSendRequest(BaseModel):
 
 
 class NudgeSendResponse(BaseModel):
-    household_id: int
+    household_id: Union[str, int]
     nudges_queued: int
     # 'telegram' only when TELEGRAM_TOKEN is set AND bot is running externally.
     channel: Literal["telegram", "api_only"] = "api_only"

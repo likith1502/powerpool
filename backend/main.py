@@ -96,7 +96,7 @@ def households():
 @app.get("/nudges/{household_id}", response_model=List[Nudge], tags=["nudges"])
 @app.get("/schedule/{household_id}", response_model=List[Nudge], tags=["schedule"],
          summary="Household schedule (alias for /nudges/{household_id})")
-def get_nudges(household_id: int):
+def get_nudges(household_id: str):
     """All nudges (load-shift requests) for one household.
     Also accessible as GET /schedule/{household_id} (planned external name).
     """

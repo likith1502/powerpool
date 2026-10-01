@@ -2,13 +2,14 @@
 Pure functions: no DB, no FastAPI -> easy to unit test."""
 import math
 from dataclasses import dataclass
+from typing import Union
 from .config import (FEEDER_CAPACITY_KW, PEAK_TARIFF, OFFPEAK_TARIFF,
                      POINTS_PER_KWH, SLOTS_PER_DAY)
 
 
 @dataclass
 class Shift:
-    household_id: int
+    household_id: Union[str, int]
     appliance_id: int
     from_slot: int
     to_slot: int

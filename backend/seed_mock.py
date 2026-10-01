@@ -41,14 +41,15 @@ def seed(n_households=80, date="2026-10-01"):
             c.execute(f"DELETE FROM {t}")
         aid = 1
         for i in range(1, n_households + 1):
+            hh_id = f"HH{i:03d}"
             htype = random.choices(["low", "mid", "shop"], [0.5, 0.4, 0.1])[0]
             c.execute("INSERT INTO households VALUES (?,?,?,?,?,0)",
-                      (i, f"{random.choice(NAMES)} #{i}", htype,
+                      (hh_id, f"{random.choice(NAMES)} #{i}", htype,
                        f"Block {chr(65 + i % 4)}", random.choice(LANGS)))
             for a in random.sample(FLEX, k=3 if htype == "low" else 4):
                 usual = a[5] + random.randint(-2, 2)
                 c.execute("INSERT INTO appliances VALUES (?,?,?,?,?,1,?,?,?)",
-                          (aid, i, a[0], a[1], a[2], a[3], a[4], usual))
+                          (aid, hh_id, a[0], a[1], a[2], a[3], a[4], usual))
                 aid += 1
         d, sol = demand_curve(), solar_curve()
         for s in range(SLOTS_PER_DAY):
