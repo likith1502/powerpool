@@ -173,10 +173,13 @@ def test_dr_event_scenario_query_param(client):
 
 def test_dr_event_explicit_date(client):
     """4. Explicit date in DR event works and matches scenario date."""
+    # DR events are cumulative, so start each call from the same freshly optimized state.
+    client.post("/optimize", json={"scenario": "cloudy"})
     res_date = client.post(
         "/dr-event",
         json={"start_slot": 74, "end_slot": 88, "target_kw": 12.0, "date": "2026-10-02"}
     )
+    client.post("/optimize", json={"scenario": "cloudy"})
     res_scen = client.post(
         "/dr-event",
         json={"start_slot": 74, "end_slot": 88, "target_kw": 12.0, "scenario": "cloudy"}

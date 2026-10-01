@@ -4,7 +4,7 @@ import math
 from dataclasses import dataclass
 from typing import Union
 from .config import (FEEDER_CAPACITY_KW, PEAK_TARIFF, OFFPEAK_TARIFF,
-                     POINTS_PER_KWH, SLOTS_PER_DAY)
+                     POINTS_PER_KWH, SLOTS_PER_DAY, COMPLIANCE)
 
 
 @dataclass
@@ -133,15 +133,19 @@ def evaluate_feasibility(net_before, net_after, capacity=FEEDER_CAPACITY_KW, ava
 
     limiting_factors = []
     if not is_feasible:
+        overload_kw = pb - capacity
+        # Only state reasons that are actually true for this result.
+        if available_flex_kw < overload_kw:
+            limiting_factors.append(
+                f"Available voluntary flexible pool ({available_flex_kw:.1f} kW) is less than peak overload ({overload_kw:.1f} kW)."
+            )
         limiting_factors.append(
-            f"Available voluntary flexible pool ({available_flex_kw:.1f} kW) is less than peak overload ({pb - capacity:.1f} kW)."
+            f"Consumer compliance rate ({COMPLIANCE:.0%}) leaves a portion of potential shifts unrealized."
         )
-        limiting_factors.append(
-            "Consumer compliance rate (65%) leaves a portion of potential shifts unrealized."
-        )
-        limiting_factors.append(
-            f"Essential non-deferrable baseload (cooling, lighting, refrigeration) represents {pb - available_flex_kw:.1f} kW of peak demand."
-        )
+        if pb - available_flex_kw > 0:
+            limiting_factors.append(
+                f"Essential non-deferrable baseload (cooling, lighting, refrigeration) represents {pb - available_flex_kw:.1f} kW of peak demand."
+            )
 
     return {
         "target_capacity_kw": float(capacity),

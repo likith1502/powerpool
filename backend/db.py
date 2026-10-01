@@ -23,7 +23,8 @@ CREATE TABLE IF NOT EXISTS forecast(
 CREATE TABLE IF NOT EXISTS nudges(
   id INTEGER PRIMARY KEY AUTOINCREMENT, household_id TEXT, appliance_id INTEGER,
   from_slot INTEGER, to_slot INTEGER, kwh_shifted REAL, points INTEGER,
-  saving_rs REAL, status TEXT DEFAULT 'pending', source TEXT DEFAULT 'optimize');
+  saving_rs REAL, status TEXT DEFAULT 'pending', source TEXT DEFAULT 'optimize',
+  scenario_date TEXT);
 """
 
 
@@ -45,6 +46,10 @@ def init_db():
         columns = [row[1] for row in c.execute("PRAGMA table_info(nudges)").fetchall()]
         if "source" not in columns:
             c.execute("ALTER TABLE nudges ADD COLUMN source TEXT DEFAULT 'optimize'")
+        if "scenario_date" not in columns:
+            # Additive, backward-compatible: legacy rows stay NULL and are treated as
+            # belonging to every date until that date is re-optimized.
+            c.execute("ALTER TABLE nudges ADD COLUMN scenario_date TEXT")
 
 
 def rows(sql, params=()):

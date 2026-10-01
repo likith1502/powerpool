@@ -32,14 +32,18 @@ def test_render_installs_ml_dependencies():
 def test_rerunning_optimizer_does_not_double_pay_points(client):
     from backend.db import rows
     client.post("/optimize", json={"scenario": "sunny"})
-    n = rows("SELECT id, household_id FROM nudges LIMIT 1")[0]
+    n = rows("SELECT id, household_id, appliance_id FROM nudges WHERE scenario_date = '2026-10-01' "
+             "AND status = 'pending' LIMIT 1")[0]
     hh = n["household_id"]
     pts = lambda: rows("SELECT points FROM households WHERE id = ?", (hh,))[0]["points"]
     start = pts()
     client.post(f"/nudges/{n['id']}/respond", json={"accept": True})
     once = pts()
     client.post("/optimize", json={"scenario": "sunny"})
-    for m in rows("SELECT id FROM nudges WHERE household_id = ?", (hh,)):
+    same = rows("SELECT id FROM nudges WHERE appliance_id = ? AND scenario_date = '2026-10-01'",
+                (n["appliance_id"],))
+    assert len(same) == 1 and same[0]["id"] == n["id"]   # kept, not re-created
+    for m in same:
         client.post(f"/nudges/{m['id']}/respond", json={"accept": True})
     assert once > start and pts() == once
 
@@ -59,3 +63,34 @@ def test_english_message_available_for_non_english_household(client):
     n = nudges[0] if isinstance(nudges, list) else nudges["nudges"][0]
     assert n["message_en"].startswith("Run your")
     assert n["message_en"] != n["message_te"]
+
+
+def test_scenario_switch_does_not_leak_or_double_pay(client):
+    from backend.db import rows
+    client.post("/optimize", json={"scenario": "sunny"})
+    cloudy = client.get("/kpis", params={"scenario": "cloudy"}).json()
+    assert cloudy["peak_after_kw"] <= cloudy["peak_before_kw"]
+    n = rows("SELECT id, household_id FROM nudges WHERE scenario_date = '2026-10-01' "
+             "AND status = 'pending' LIMIT 1")[0]
+    hh = n["household_id"]
+    client.post(f"/nudges/{n['id']}/respond", json={"accept": True})
+    pts = rows("SELECT points FROM households WHERE id = ?", (hh,))[0]["points"]
+    for sc in ("cloudy", "heatwave", "sunny"):
+        client.post("/optimize", json={"scenario": sc})
+    for m in rows("SELECT id FROM nudges WHERE household_id = ? AND scenario_date = '2026-10-01'", (hh,)):
+        client.post(f"/nudges/{m['id']}/respond", json={"accept": True})
+    assert rows("SELECT points FROM households WHERE id = ?", (hh,))[0]["points"] == pts
+    assert rows("SELECT status FROM nudges WHERE id = ?", (n["id"],))[0]["status"] == "accepted"
+
+
+def test_feasibility_reasons_are_only_stated_when_true():
+    from backend.optimizer import evaluate_feasibility
+    r = evaluate_feasibility([200.0] * 4, [180.0] * 4, capacity=170.0, available_flex_kw=261.5)
+    text = " ".join(r["limiting_factors"])
+    assert "less than peak overload" not in text      # 261.5 kW pool is NOT less than a 30 kW overload
+    assert "represents -" not in text                 # never a negative baseload
+
+
+def test_leaderboard_limit_is_validated(client):
+    assert client.get("/leaderboard", params={"limit": -1}).status_code == 422
+    assert client.get("/leaderboard", params={"limit": 5, "format": "list"}).status_code == 200

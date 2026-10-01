@@ -115,7 +115,7 @@ def _build_fallback_mock_state(scenario: str = "sunny") -> Dict[str, Any]:
         "households": 80,
         "peak_before_kw": peak_b,
         "peak_after_kw": peak_a,
-        "rs_saved": round(kwh * 4.0, 2)
+        "rs_saved": round(kwh * 3.0, 2)  # ₹9 peak − ₹6 off-peak, same as backend
     }
 
     mock_households = [

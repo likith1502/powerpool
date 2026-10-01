@@ -136,7 +136,8 @@ def get_nudges(household_id: str, scenario: Optional[str] = None, format: Option
     """All nudges (load-shift requests) for one household.
     Also accessible as GET /schedule/{household_id} (planned external name).
     """
-    nudges = svc.nudges_for(household_id)
+    nudge_date = guard(svc.resolve_date, None, scenario) if scenario else None
+    nudges = svc.nudges_for(household_id, date=nudge_date)
     if format == "list":
         return nudges
     return {"household_id": household_id, "nudges": nudges}
@@ -194,7 +195,7 @@ def kpis(date: Optional[str] = None, scenario: Optional[str] = None):
 # ── Leaderboard ───────────────────────────────────────────────────────────────
 
 @app.get("/leaderboard", response_model=Union[LeaderboardResponse, List[LeaderRow]])
-def leaderboard(limit: int = 10, scenario: Optional[str] = None, format: Optional[str] = None):
+def leaderboard(limit: int = Query(10, ge=1, le=100), scenario: Optional[str] = None, format: Optional[str] = None):
     data = svc.leaderboard(limit)
     if format == "list":
         return data
@@ -215,9 +216,10 @@ def dr_event(body: DREventRequest, date: Optional[str] = None, scenario: Optiona
 
 @app.get("/flex-capacity", response_model=Union[FlexCapacityResponse, List[FlexHour]])
 def flex_capacity(scenario: Optional[str] = None, format: Optional[str] = None):
+    flex_date = guard(svc.resolve_date, None, scenario) if scenario else None
     if format == "hourly":
-        return svc.flex_capacity_hourly()
-    return svc.flex_capacity_summary()
+        return svc.flex_capacity_hourly(flex_date)
+    return svc.flex_capacity_summary(flex_date)
 
 
 

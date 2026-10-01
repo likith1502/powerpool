@@ -8,6 +8,9 @@ from .translations import nudge_text
 
 WEIGHT = {"accepted": 1.0, "pending": COMPLIANCE, "skipped": 0.0}
 
+# Nudges belong to one scenario date. Legacy rows (NULL) match every date.
+DATE_FILTER = "(n.scenario_date = ? OR n.scenario_date IS NULL)"
+
 
 SCENARIO_DATES = {
     "sunny": "2026-10-01",
@@ -68,10 +71,15 @@ def appliances():
     return rows("SELECT * FROM appliances WHERE flexible = 1")
 
 
-def shifts_from_db():
+def shifts_from_db(date=None):
     out = []
-    for n in rows("SELECT n.*, a.power_kw, a.duration_slots FROM nudges n "
-                  "JOIN appliances a ON a.id = n.appliance_id"):
+    sql = ("SELECT n.*, a.power_kw, a.duration_slots FROM nudges n "
+           "JOIN appliances a ON a.id = n.appliance_id")
+    params = ()
+    if date:
+        sql += " WHERE " + DATE_FILTER
+        params = (date,)
+    for n in rows(sql, params):
         sh = Shift(str(n["household_id"]), n["appliance_id"], n["from_slot"], n["to_slot"],
                    n["duration_slots"], n["power_kw"])
         out.append((sh, WEIGHT[n["status"]]))
@@ -109,41 +117,41 @@ def to_points(curve, solar_curve=None, capacity=FEEDER_CAPACITY_KW):
 
 
 def after_curve(date=None, scenario=None):
-    d, s = curves(date, scenario=scenario)
-    return net_load(d, s), projected_curve(d, s, shifts_from_db())
+    effective_date = resolve_date(date, scenario) or "2026-10-01"
+    d, s = curves(effective_date)
+    return net_load(d, s), projected_curve(d, s, shifts_from_db(effective_date))
 
 
 # ---------- writing nudges ----------
-def save_shifts(shifts, source="optimize"):
+def save_shifts(shifts, source="optimize", date=None):
     with get_conn() as c:
         for sh in shifts:
             c.execute("INSERT INTO nudges(household_id, appliance_id, from_slot, to_slot,"
-                      " kwh_shifted, points, saving_rs, status, source)"
-                      " VALUES (?,?,?,?,?,?,?,'pending',?)",
+                      " kwh_shifted, points, saving_rs, status, source, scenario_date)"
+                      " VALUES (?,?,?,?,?,?,?,'pending',?,?)",
                       (str(sh.household_id), sh.appliance_id, sh.from_slot, sh.to_slot,
-                       sh.kwh, sh.points, sh.saving_rs, source))
+                       sh.kwh, sh.points, sh.saving_rs, source, date))
 
 
 def run_optimize(date=None, scenario=None, compliance=None):
-    with get_conn() as c:
-        prior = {(str(r["household_id"]), r["appliance_id"], r["from_slot"], r["to_slot"]): r["status"]
-                 for r in c.execute("SELECT household_id, appliance_id, from_slot, to_slot, status "
-                                    "FROM nudges WHERE status != 'pending'").fetchall()}
-        c.execute("DELETE FROM nudges")
-        # NOTE: household points are NOT reset here.
-        # Points are only awarded/revoked via respond() so that prior resident
-        # acceptances survive an optimizer re-run on the DISCOM dashboard.
     effective_date = resolve_date(date, scenario) or "2026-10-01"
+    with get_conn() as c:
+        # Re-planning replaces only PENDING nudges for this scenario date.
+        # Accepted/skipped nudges are residents' answers: they are kept, so a
+        # re-run (or a scenario switch) can never pay the same shift twice.
+        c.execute("DELETE FROM nudges WHERE status = 'pending' AND "
+                  "(scenario_date = ? OR scenario_date IS NULL)", (effective_date,))
+        # NOTE: household points are NOT reset here.
+        # Points are only awarded/revoked via respond().
+    answered = {n["appliance_id"] for n in rows(
+        "SELECT appliance_id FROM nudges n WHERE " + DATE_FILTER, (effective_date,))}
     d, s = curves(effective_date)
+    _, current = after_curve(effective_date)   # baseline with answered shifts applied
+    solar_adj = [di - ci for di, ci in zip(d, current)]
     comp = compliance if compliance is not None else COMPLIANCE
-    shifts, _ = greedy_schedule(d, s, appliances(), compliance=comp)
-    save_shifts(shifts)
-    if prior:  # keep residents' answers so a re-run cannot pay the same shift twice
-        with get_conn() as c:
-            for (hh, app_id, fs, ts), status in prior.items():
-                c.execute("UPDATE nudges SET status = ? WHERE household_id = ? AND appliance_id = ? "
-                          "AND from_slot = ? AND to_slot = ? AND status = 'pending'",
-                          (status, hh, app_id, fs, ts))
+    shifts, _ = greedy_schedule(d, solar_adj, appliances(), compliance=comp,
+                                exclude_ids=answered)
+    save_shifts(shifts, date=effective_date)
     before, after = after_curve(effective_date)
     pb, pa = max(before), max(after)
     kwh = sum(sh.kwh for sh in shifts)
@@ -178,7 +186,8 @@ def run_dr_event(start, end, target_kw, date=None, scenario=None):
     window = list(range(start, end + 1)) if start <= end else \
         list(range(start, 96)) + list(range(0, end + 1))
     _, current = after_curve(effective_date)
-    already = {n["appliance_id"] for n in rows("SELECT appliance_id FROM nudges")}
+    already = {n["appliance_id"] for n in rows(
+        "SELECT appliance_id FROM nudges n WHERE " + DATE_FILTER, (effective_date,))}
 
     # Calculate available flexible capacity in the target window
     avail_in_window = [a for a in appliances() if a["id"] not in already and
@@ -189,7 +198,7 @@ def run_dr_event(start, end, target_kw, date=None, scenario=None):
     shifts, _ = greedy_schedule(d, solar_adj, appliances(), target_slots=window,
                                 target_kw=target_kw, exclude_ids=already,
                                 compliance=COMPLIANCE)
-    save_shifts(shifts, source="dr")
+    save_shifts(shifts, source="dr", date=effective_date)
     _, after = after_curve(effective_date)
     reduced = max(current[w] for w in window) - max(after[w] for w in window)
     peak_after = max(after)
@@ -206,14 +215,18 @@ def run_dr_event(start, end, target_kw, date=None, scenario=None):
 
 
 # ---------- residents ----------
-def nudges_for(household_id):
+def nudges_for(household_id, date=None):
     hh_id = normalize_household_id(household_id)
     hh = rows("SELECT language FROM households WHERE id = ?", (hh_id,))
     lang = hh[0]["language"] if hh else "en"
     out = []
-    for n in rows("SELECT n.*, a.name AS appliance FROM nudges n JOIN appliances a "
-                  "ON a.id = n.appliance_id WHERE n.household_id = ? ORDER BY n.to_slot",
-                  (hh_id,)):
+    sql = ("SELECT n.*, a.name AS appliance FROM nudges n JOIN appliances a "
+           "ON a.id = n.appliance_id WHERE n.household_id = ?")
+    params = (hh_id,)
+    if date:
+        sql += " AND " + DATE_FILTER
+        params = (hh_id, date)
+    for n in rows(sql + " ORDER BY n.to_slot", params):
         n["from_time"], n["to_time"] = slot_to_time(n["from_slot"]), slot_to_time(n["to_slot"])
         n["message"] = nudge_text(n["appliance"], n["from_slot"], n["to_slot"],
                                   n["points"], n["saving_rs"], lang)
@@ -295,12 +308,12 @@ def kpis(date=None, scenario=None):
     effective_date = resolve_date(date, scenario) or "2026-10-01"
     _, s = curves(effective_date)
     before, after = after_curve(effective_date)
-    weighted = shifts_from_db()
+    weighted = shifts_from_db(effective_date)
     kwh = sum(sh.kwh * w for sh, w in weighted)
     rs = sum(sh.saving_rs * w for sh, w in weighted)
     pb, pa = max(before), max(after)
-    participants = rows("SELECT COUNT(DISTINCT household_id) c FROM nudges "
-                        "WHERE status = 'accepted'")[0]["c"]
+    participants = rows("SELECT COUNT(DISTINCT household_id) c FROM nudges n "
+                        "WHERE status = 'accepted' AND " + DATE_FILTER, (effective_date,))[0]["c"]
     total = rows("SELECT COUNT(*) c FROM households")[0]["c"]
     load_ratio = pa / FEEDER_CAPACITY_KW
     risk = "HIGH" if load_ratio > 1.05 else "MEDIUM" if load_ratio > 0.95 else "LOW"
@@ -326,9 +339,18 @@ def kpis(date=None, scenario=None):
     }
 
 
-def flex_capacity_hourly():
+def _nudge_rows(cols, date=None, extra=""):
+    sql = f"SELECT {cols} FROM nudges n JOIN appliances a ON a.id = n.appliance_id WHERE 1=1{extra}"
+    params = ()
+    if date:
+        sql += " AND " + DATE_FILTER
+        params = (date,)
+    return rows(sql, params)
+
+
+def flex_capacity_hourly(date=None):
     """kW that could still be moved, per hour, from appliances not yet nudged."""
-    nudged = {n["appliance_id"] for n in rows("SELECT appliance_id FROM nudges")}
+    nudged = {n["appliance_id"] for n in _nudge_rows("n.appliance_id", date)}
     per_hour = [0.0] * 24
     for a in appliances():
         if a["id"] in nudged:
@@ -340,7 +362,7 @@ def flex_capacity_hourly():
             for h, v in enumerate(per_hour)]
 
 
-def flex_capacity_summary():
+def flex_capacity_summary(date=None):
     """Summary of flexible capacity available for DR dispatch.
 
     'Available' means power that can still be shifted:
@@ -351,16 +373,12 @@ def flex_capacity_summary():
     After running the optimizer, pending-nudge capacity is the primary source.
     """
     # Pending nudges: dispatchable (resident has not yet responded)
-    pending_rows = rows(
-        "SELECT n.household_id, a.power_kw "
-        "FROM nudges n JOIN appliances a ON a.id = n.appliance_id "
-        "WHERE n.status = 'pending'"
-    )
+    pending_rows = _nudge_rows("n.household_id, a.power_kw", date, " AND n.status = 'pending'")
     pending_kw = round(sum(r["power_kw"] for r in pending_rows), 1)
     pending_hh = {str(r["household_id"]) for r in pending_rows}
 
     # Appliances with no nudge at all (un-optimized remainder)
-    nudged_ids = {n["appliance_id"] for n in rows("SELECT appliance_id FROM nudges")}
+    nudged_ids = {n["appliance_id"] for n in _nudge_rows("n.appliance_id", date)}
     unnudged_apps = [a for a in appliances() if a["id"] not in nudged_ids]
     unnudged_kw = round(sum(a["power_kw"] for a in unnudged_apps), 1)
     unnudged_hh = {str(a["household_id"]) for a in unnudged_apps}
@@ -368,7 +386,7 @@ def flex_capacity_summary():
     available_kw = round(pending_kw + unnudged_kw, 1)
     households_avail = len(pending_hh | unnudged_hh)
 
-    hourly = flex_capacity_hourly()
+    hourly = flex_capacity_hourly(date)
     return {
         "window": "next_hour",
         "available_kw": available_kw,
@@ -377,5 +395,5 @@ def flex_capacity_summary():
     }
 
 
-def flex_capacity():
-    return flex_capacity_hourly()
+def flex_capacity(date=None):
+    return flex_capacity_hourly(date)
