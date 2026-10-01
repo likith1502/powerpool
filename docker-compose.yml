@@ -1,0 +1,50 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: powerpool-backend
+    command: uvicorn backend.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    environment:
+      - DB_PATH=/app/data/powerpool.db
+      - MOCK_DATA=false
+      - FEEDER_CAPACITY_KW=170.0
+      - COMPLIANCE=0.65
+      - PEAK_TARIFF=9.0
+      - OFFPEAK_TARIFF=6.0
+      - CO2_PER_KWH=0.71
+      - AI_NUDGE_PERSONALIZATION=false
+      # Optional: set TELEGRAM_TOKEN and ANTHROPIC_API_KEY via .env file or environment
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+    volumes:
+      - powerpool-data:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: powerpool-frontend
+    command: streamlit run frontend/Home.py --server.port 8501 --server.address 0.0.0.0 --server.headless true
+    ports:
+      - "8501:8501"
+    environment:
+      - API_URL=http://backend:8000
+      - DEMO_MODE=false
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  powerpool-data:
+    driver: local

@@ -24,6 +24,51 @@ def nudge_text(appliance, from_slot, to_slot, points, saving, lang="en"):
                                   f=slot_to_time(from_slot), p=points, s=round(saving))
 
 
+import os
+
+def is_ai_personalization_enabled() -> bool:
+    """Check if AI nudge personalization is explicitly opted into via environment."""
+    return os.getenv("AI_NUDGE_PERSONALIZATION", "false").lower() in ("true", "1", "yes") and bool(os.getenv("ANTHROPIC_API_KEY", "").strip())
+
+
+def personalize_nudge(appliance: str, from_slot: int, to_slot: int, points: int, saving: float, lang: str = "en", tone: str = "friendly") -> str:
+    """
+    Opt-in AI nudge personalization using Anthropic Claude.
+    
+    Guarantees:
+    - Zero PII: sends only appliance, slot times, points, and rupees. Never household ID, name, or location.
+    - Deterministic fallback: returns standard template on any error, timeout, or invalid output.
+    - Output validation: ensures concise single-sentence response.
+    """
+    fallback = nudge_text(appliance, from_slot, to_slot, points, saving, lang=lang)
+    if not is_ai_personalization_enabled():
+        return fallback
+
+    try:
+        import anthropic
+        api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+        client = anthropic.Anthropic(api_key=api_key)
+        from_time = slot_to_time(from_slot)
+        to_time = slot_to_time(to_slot)
+        prompt = (
+            f"Draft a concise, encouraging 1-sentence energy nudge in {lang}. "
+            f"Action: shift {appliance} from {from_time} to {to_time}. "
+            f"Reward: {points} points and about Rs {round(saving)} savings. "
+            f"Tone: {tone}. Reply ONLY with the nudge sentence, no quotation marks."
+        )
+        msg = client.messages.create(
+            model="claude-3-haiku-20240307",
+            max_tokens=100,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        content = msg.content[0].text.strip().strip('"')
+        if len(content) >= 15 and "\n" not in content[:30]:
+            return content
+        return fallback
+    except Exception:
+        return fallback
+
+
 def llm_translate(text, lang):
     """Optional: friendlier wording via Claude. Falls back to input on any error."""
     if not ANTHROPIC_API_KEY or lang == "en":

@@ -71,12 +71,16 @@ def test_household_lookup_accepts_string_id(client):
     # Look up with string ID "HH001"
     r = client.get("/nudges/HH001")
     assert r.status_code == 200
-    assert isinstance(r.json(), list)
+    res = r.json()
+    nudges = res["nudges"] if isinstance(res, dict) else res
+    assert isinstance(nudges, list)
 
     # Alias /schedule/HH001
     r_alias = client.get("/schedule/HH001")
     assert r_alias.status_code == 200
-    assert isinstance(r_alias.json(), list)
+    res_alias = r_alias.json()
+    nudges_alias = res_alias["nudges"] if isinstance(res_alias, dict) else res_alias
+    assert isinstance(nudges_alias, list)
 
 
 def test_nudge_operations_preserve_string_id(fresh_client):
@@ -92,11 +96,13 @@ def test_nudge_operations_preserve_string_id(fresh_client):
     assert isinstance(target_hh, str)
 
     # Retrieve nudges for target household
-    nudges = fresh_client.get(f"/nudges/{target_hh}").json()
+    res = fresh_client.get(f"/nudges/{target_hh}").json()
+    nudges = res["nudges"] if isinstance(res, dict) else res
     if not nudges:
         # Check other households if household 0 had no shiftable appliances
         for h in households:
-            nudges = fresh_client.get(f"/nudges/{h['id']}").json()
+            res = fresh_client.get(f"/nudges/{h['id']}").json()
+            nudges = res["nudges"] if isinstance(res, dict) else res
             if nudges:
                 target_hh = h["id"]
                 break
@@ -107,6 +113,7 @@ def test_nudge_operations_preserve_string_id(fresh_client):
     # Respond to nudge and check points update
     nudge_id = nudges[0]["id"]
     resp = fresh_client.post(f"/nudges/{nudge_id}/respond", json={"accept": True})
+
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "accepted"

@@ -17,15 +17,16 @@ New endpoints (this file):
   POST /nudge/send        → assemble nudge text; no real Telegram calls in tests
 """
 from contextlib import asynccontextmanager
-from typing import List, Optional
+from typing import List, Optional, Union
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from . import services as svc
 from .config import slot_to_time, MOCK_DATA
 from .db import init_db, rows
-from .schemas import (ForecastSlot, OptimizeResponse, Nudge, RespondRequest,
-                      RespondResponse, KPIs, LeaderRow, DREventRequest,
-                      DREventResponse, FlexHour, Household,
+from .schemas import (ForecastSlot, ForecastResponse, OptimizeResponse, OptimizeRequest,
+                      Nudge, NudgesResponse, RespondRequest, RespondResponse, KPIs,
+                      LeaderRow, LeaderboardResponse, DREventRequest,
+                      DREventResponse, FlexHour, FlexCapacityResponse, Household,
                       NudgeSendRequest, NudgeSendResponse)
 
 @asynccontextmanager
@@ -52,6 +53,11 @@ def guard(fn, *a, **k):
 
 # ── Health ────────────────────────────────────────────────────────────────────
 
+@app.get("/")
+def root():
+    return {"status": "ok", "message": "PowerPool API", "mock_data": MOCK_DATA}
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "mock_data": MOCK_DATA}
@@ -59,17 +65,22 @@ def health():
 
 # ── Forecast ──────────────────────────────────────────────────────────────────
 
-@app.get("/forecast", response_model=List[ForecastSlot])
-def forecast(date: Optional[str] = None):
+@app.get("/forecast", response_model=Union[ForecastResponse, List[ForecastSlot]])
+def forecast(date: Optional[str] = None, scenario: Optional[str] = None, format: Optional[str] = None):
     """96 × 15-minute slots.
     `data_source` = 'mock' when seeded data is in use; 'model' after Member A's
     pipeline writes real forecast rows and MOCK_DATA=false is set in .env.
+    Supports ?scenario=sunny|cloudy|heatwave.
     """
-    data = guard(svc.load_forecast, date)
+    effective_date = guard(svc.resolve_date, date, scenario) or "2026-10-01"
+    data = guard(svc.load_forecast, effective_date, scenario)
     source = "mock" if MOCK_DATA else "model"
-    return [{**r, "slot": i, "time": slot_to_time(i),
-             "is_stress": bool(r["is_stress"]), "data_source": source}
-            for i, r in enumerate(data)]
+    slots = [{**r, "slot": i, "time": slot_to_time(i), "timestamp": r.get("timestamp"),
+              "is_stress": bool(r["is_stress"]), "data_source": source}
+             for i, r in enumerate(data)]
+    if format == "list":
+        return slots
+    return {"date": effective_date, "slots": slots}
 
 
 # ── Schedule / Optimize ───────────────────────────────────────────────────────
@@ -77,11 +88,15 @@ def forecast(date: Optional[str] = None):
 @app.post("/optimize", response_model=OptimizeResponse, tags=["schedule"])
 @app.post("/schedule/run", response_model=OptimizeResponse, tags=["schedule"],
           summary="Run scheduler (alias for /optimize)")
-def optimize(date: Optional[str] = None):
+def optimize(body: Optional[OptimizeRequest] = None, date: Optional[str] = None, scenario: Optional[str] = None):
     """Clear all nudges and run the greedy load-shift scheduler.
     Also accessible as POST /schedule/run (planned external name).
+    Supports JSON body (frontend) or query parameters (API callers/tests).
     """
-    return guard(svc.run_optimize, date)
+    effective_date = (body.date if body and body.date else None) or date
+    effective_scenario = (body.scenario if body and body.scenario else None) or scenario
+    effective_compliance = body.compliance_rate if body else None
+    return guard(svc.run_optimize, effective_date, effective_scenario, compliance=effective_compliance)
 
 
 # ── Households ────────────────────────────────────────────────────────────────
@@ -93,14 +108,17 @@ def households():
 
 # ── Nudges / Per-household schedule ───────────────────────────────────────────
 
-@app.get("/nudges/{household_id}", response_model=List[Nudge], tags=["nudges"])
-@app.get("/schedule/{household_id}", response_model=List[Nudge], tags=["schedule"],
+@app.get("/nudges/{household_id}", response_model=Union[NudgesResponse, List[Nudge]], tags=["nudges"])
+@app.get("/schedule/{household_id}", response_model=Union[NudgesResponse, List[Nudge]], tags=["schedule"],
          summary="Household schedule (alias for /nudges/{household_id})")
-def get_nudges(household_id: str):
+def get_nudges(household_id: str, scenario: Optional[str] = None, format: Optional[str] = None):
     """All nudges (load-shift requests) for one household.
     Also accessible as GET /schedule/{household_id} (planned external name).
     """
-    return svc.nudges_for(household_id)
+    nudges = svc.nudges_for(household_id)
+    if format == "list":
+        return nudges
+    return {"household_id": household_id, "nudges": nudges}
 
 
 @app.post("/nudges/{nudge_id}/respond", response_model=RespondResponse)
@@ -115,18 +133,7 @@ def respond(nudge_id: int, body: RespondRequest):
 
 @app.post("/nudge/send", response_model=NudgeSendResponse, tags=["nudges"])
 def nudge_send(body: NudgeSendRequest):
-    """Assemble and (optionally) push nudge text for a household.
-
-    Current behaviour (no TELEGRAM_TOKEN set):
-      * Fetches pending nudges for the household.
-      * Assembles localised nudge text via translations.nudge_text().
-      * Returns a preview in `messages` — no real message is sent.
-      * channel = 'api_only', delivered = false.
-
-    Future behaviour (when TELEGRAM_TOKEN is set and bot is running):
-      * ⚠ NEEDS TEAM AGREEMENT on whether the HTTP endpoint should push
-        directly or the standalone bot script should remain the delivery path.
-    """
+    """Assemble and (optionally) push nudge text for a household."""
     import os
     all_nudges = svc.nudges_for(body.household_id)
     if body.nudge_id is not None:
@@ -135,10 +142,12 @@ def nudge_send(body: NudgeSendRequest):
 
     messages = [n["message"] for n in pending]
 
-    # Real Telegram delivery would go here, but ONLY when a token is present.
-    # We never make paid or authenticated calls during tests.
     token = os.getenv("TELEGRAM_TOKEN", "")
-    delivered = False  # no real push in this implementation
+    delivered = False
+    if token and getattr(body, "chat_id", None) and messages:
+        from .telegram_service import send_telegram_message
+        results = [send_telegram_message(str(body.chat_id), msg, token=token) for msg in messages]
+        delivered = all(results) if results else False
 
     return {
         "household_id": body.household_id,
@@ -154,32 +163,41 @@ def nudge_send(body: NudgeSendRequest):
 @app.get("/kpis", response_model=KPIs, tags=["metrics"])
 @app.get("/metrics", response_model=KPIs, tags=["metrics"],
          summary="Impact metrics (alias for /kpis)")
-def kpis(date: Optional[str] = None):
+def kpis(date: Optional[str] = None, scenario: Optional[str] = None):
     """Aggregate dashboard KPIs.
     Also accessible as GET /metrics (planned external name).
     """
-    return guard(svc.kpis, date)
+    return guard(svc.kpis, date=date, scenario=scenario)
 
 
 # ── Leaderboard ───────────────────────────────────────────────────────────────
 
-@app.get("/leaderboard", response_model=List[LeaderRow])
-def leaderboard(limit: int = 10):
-    return svc.leaderboard(limit)
+@app.get("/leaderboard", response_model=Union[LeaderboardResponse, List[LeaderRow]])
+def leaderboard(limit: int = 10, scenario: Optional[str] = None, format: Optional[str] = None):
+    data = svc.leaderboard(limit)
+    if format == "list":
+        return data
+    return {"leaderboard": data}
 
 
 # ── Demand-response event ─────────────────────────────────────────────────────
 
 @app.post("/dr-event", response_model=DREventResponse)
-def dr_event(body: DREventRequest, date: Optional[str] = None):
-    return guard(svc.run_dr_event, body.start_slot, body.end_slot, body.target_kw, date)
+def dr_event(body: DREventRequest, date: Optional[str] = None, scenario: Optional[str] = None):
+    effective_date = body.date or date
+    effective_scenario = body.scenario or scenario
+    return guard(svc.run_dr_event, body.start_slot, body.end_slot, body.target_kw,
+                 date=effective_date, scenario=effective_scenario)
 
 
 # ── Flex capacity ─────────────────────────────────────────────────────────────
 
-@app.get("/flex-capacity", response_model=List[FlexHour])
-def flex_capacity():
-    return svc.flex_capacity()
+@app.get("/flex-capacity", response_model=Union[FlexCapacityResponse, List[FlexHour]])
+def flex_capacity(scenario: Optional[str] = None, format: Optional[str] = None):
+    if format == "hourly":
+        return svc.flex_capacity_hourly()
+    return svc.flex_capacity_summary()
+
 
 
 # ── Demo helpers ──────────────────────────────────────────────────────────────

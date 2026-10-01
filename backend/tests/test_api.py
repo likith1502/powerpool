@@ -21,9 +21,10 @@ def test_health(client):
 
 
 def test_forecast_shape(client):
-    f = client.get("/forecast").json()
-    assert len(f) == 96
-    slot = f[0]
+    res = client.get("/forecast").json()
+    slots = res["slots"] if isinstance(res, dict) else res
+    assert len(slots) == 96
+    slot = slots[0]
     for key in ("slot", "time", "demand_kw", "solar_kw", "capacity_kw",
                 "gap_kw", "is_stress", "data_source"):
         assert key in slot, f"Missing key in /forecast slot: {key}"
@@ -35,6 +36,7 @@ def test_optimize_reduces_peak(client):
     assert o["nudges_created"] > 0
     assert o["peak_after_kw"] < o["peak_before_kw"]
     assert 0 < o["peak_reduction_pct"] <= 100
+    assert "kwh_shifted" in o
 
 
 def test_households(client):
@@ -47,11 +49,13 @@ def test_nudges_and_respond(client):
     # Ensure there are nudges after optimize
     client.post("/optimize")
     hh = client.get("/households").json()[0]["id"]
-    ns = client.get(f"/nudges/{hh}").json()
+    res = client.get(f"/nudges/{hh}").json()
+    ns = res["nudges"] if isinstance(res, dict) else res
     # Fall back to household 2 if household 1 has no nudges
     if not ns:
         for row in client.get("/households").json():
-            ns = client.get(f"/nudges/{row['id']}").json()
+            res = client.get(f"/nudges/{row['id']}").json()
+            ns = res["nudges"] if isinstance(res, dict) else res
             if ns:
                 break
     assert ns, "No nudges found after optimize"
@@ -59,6 +63,8 @@ def test_nudges_and_respond(client):
     r = client.post(f"/nudges/{nid}/respond", json={"accept": True}).json()
     assert r["status"] == "accepted"
     assert r["household_points"] > 0
+    assert "points_added" in r
+    assert "saving_rs" in r
 
 
 def test_respond_invalid_nudge_404(client):
@@ -74,7 +80,8 @@ def test_kpis(client):
     client.post("/optimize")
     k = client.get("/kpis").json()
     for field in ("peak_before_kw", "peak_after_kw", "kwh_shifted",
-                  "rs_saved", "co2_kg", "transformer_risk"):
+                  "rs_saved", "co2_kg", "transformer_risk", "households",
+                  "solar_self_use_change_pct"):
         assert field in k
     assert k["transformer_risk"] in ("LOW", "MEDIUM", "HIGH")
     assert k["kwh_shifted"] > 0
@@ -82,9 +89,11 @@ def test_kpis(client):
 
 def test_leaderboard(client):
     client.post("/optimize")
-    lb = client.get("/leaderboard").json()
+    res = client.get("/leaderboard").json()
+    lb = res["leaderboard"] if isinstance(res, dict) else res
     assert len(lb) <= 10
     assert lb[0]["rank"] == 1
+    assert "kwh_shifted" in lb[0]
 
 
 def test_dr_event(client):
@@ -94,10 +103,21 @@ def test_dr_event(client):
     body = dr.json()
     assert "nudges_created" in body
     assert "kw_reduced_expected" in body
+    assert "success" in body
+    assert "target_kw" in body
+    assert "available_flexible_kw" in body
 
 
 def test_flex_capacity(client):
-    assert len(client.get("/flex-capacity").json()) == 24
+    res = client.get("/flex-capacity").json()
+    if isinstance(res, dict):
+        assert "window" in res
+        assert "available_kw" in res
+        assert "households_available" in res
+        assert len(res["hourly"]) == 24
+    else:
+        assert len(res) == 24
+
 
 
 # ── New planned-name aliases (must return same shape as originals) ─────────────
@@ -154,12 +174,14 @@ def test_nudge_send_specific_nudge(fresh_client):
     target_hh = None
     target_nid = None
     for hh in households:
-        nudges = fresh_client.get(f"/nudges/{hh['id']}").json()
+        res = fresh_client.get(f"/nudges/{hh['id']}").json()
+        nudges = res["nudges"] if isinstance(res, dict) else res
         pending = [n for n in nudges if n["status"] == "pending"]
         if pending:
             target_hh = hh["id"]
             target_nid = pending[0]["id"]
             break
+
     assert target_hh is not None, "No households have pending nudges after /optimize"
     r = fresh_client.post(
         "/nudge/send",

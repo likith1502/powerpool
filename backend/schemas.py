@@ -14,20 +14,34 @@ class SlotPoint(BaseModel):
     slot: int
     time: str
     demand_kw: float
+    capacity_kw: float = 170.0
+    solar_kw: float = 0.0
+    gap_kw: float = 0.0
+    is_stress: bool = False
+
+
+class OptimizeRequest(BaseModel):
+    date: Optional[str] = None
+    scenario: Optional[str] = None
+    compliance_rate: Optional[float] = Field(default=None, ge=0.0, le=1.0)
 
 
 class ForecastSlot(BaseModel):
     slot: int
     time: str
+    timestamp: Optional[str] = None
     demand_kw: float
     solar_kw: float
     capacity_kw: float
     gap_kw: float
     is_stress: bool
     # 'mock' = seed_mock.py data; 'model' = Member A's ML pipeline.
-    # Member C uses this to show a data-freshness badge.
-    # ⚠ NEEDS TEAM AGREEMENT: field name and allowed values.
     data_source: Literal["mock", "model"] = "mock"
+
+
+class ForecastResponse(BaseModel):
+    date: str
+    slots: List[ForecastSlot]
 
 
 class OptimizeResponse(BaseModel):
@@ -37,6 +51,7 @@ class OptimizeResponse(BaseModel):
     peak_before_kw: float
     peak_after_kw: float
     peak_reduction_pct: float
+    kwh_shifted: float = 0.0
 
 
 class Nudge(BaseModel):
@@ -53,6 +68,13 @@ class Nudge(BaseModel):
     saving_rs: float
     status: str
     message: str
+    message_hi: Optional[str] = None
+    message_te: Optional[str] = None
+
+
+class NudgesResponse(BaseModel):
+    household_id: Union[str, int]
+    nudges: List[Nudge]
 
 
 class RespondRequest(BaseModel):
@@ -60,9 +82,13 @@ class RespondRequest(BaseModel):
 
 
 class RespondResponse(BaseModel):
+    id: int
     nudge_id: int
     status: str
+    points_added: int = 0
+    saving_rs: float = 0.0
     household_points: int
+    message: str = ""
 
 
 class KPIs(BaseModel):
@@ -74,8 +100,10 @@ class KPIs(BaseModel):
     co2_kg: float
     solar_self_use_pct_before: float
     solar_self_use_pct: float
+    solar_self_use_change_pct: float = 0.0
     participants: int
     total_households: int
+    households: int
     transformer_risk: str
 
 
@@ -83,18 +111,29 @@ class LeaderRow(BaseModel):
     rank: int
     household_id: Union[str, int]
     name: str
-    block: str
+    block: str = ""
     points: int
+    kwh_shifted: float = 0.0
+
+
+class LeaderboardResponse(BaseModel):
+    leaderboard: List[LeaderRow]
 
 
 class DREventRequest(BaseModel):
     start_slot: int = Field(ge=0, le=95)
     end_slot: int = Field(ge=0, le=95)
     target_kw: float = Field(gt=0)
+    date: Optional[str] = None
+    scenario: Optional[str] = None
 
 
 class DREventResponse(BaseModel):
+    success: bool = True
     nudges_created: int
+    target_kw: float
+    available_flexible_kw: float
+    peak_after_kw: float
     kw_reduced_expected: float
     after: List[SlotPoint]
 
@@ -103,6 +142,13 @@ class FlexHour(BaseModel):
     hour: int
     time: str
     flexible_kw: float
+
+
+class FlexCapacityResponse(BaseModel):
+    window: str = "next_hour"
+    available_kw: float
+    households_available: int
+    hourly: Optional[List[FlexHour]] = None
 
 
 class Household(BaseModel):
@@ -115,22 +161,21 @@ class Household(BaseModel):
 
 
 # ── /nudge/send  (POST) ────────────────────────────────────────────────────────
-# ⚠ NEEDS TEAM AGREEMENT: should this trigger real Telegram delivery,
-# return a delivery receipt, or both? For now the backend assembles the
-# nudge text and returns a preview without making any real Telegram calls.
 class NudgeSendRequest(BaseModel):
     household_id: Union[str, int] = Field(description="Target household")
     nudge_id: Optional[int] = Field(
         default=None,
         description="Specific nudge to send. Omit to send all pending nudges for the household.",
     )
+    chat_id: Optional[Union[str, int]] = Field(
+        default=None,
+        description="Optional Telegram chat ID for direct push notification.",
+    )
 
 
 class NudgeSendResponse(BaseModel):
     household_id: Union[str, int]
     nudges_queued: int
-    # 'telegram' only when TELEGRAM_TOKEN is set AND bot is running externally.
     channel: Literal["telegram", "api_only"] = "api_only"
-    # delivered=True only when an actual Telegram push was made.
     delivered: bool = False
-    messages: List[str]  # preview of nudge text(s) that would be / were sent
+    messages: List[str]

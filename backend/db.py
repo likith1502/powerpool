@@ -1,4 +1,5 @@
 """SQLite access. Creates the agreed tables (Section 5) if they don't exist."""
+import os
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
